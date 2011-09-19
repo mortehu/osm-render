@@ -15,6 +15,8 @@ struct osm_node
 #define OSM_WAY_ONEWAY             0x0002
 #define OSM_WAY_PARK               0x0004
 #define OSM_WAY_RESIDENTIAL        0x0008
+#define OSM_WAY_CEMETERY           0x0010
+#define OSM_WAY_CROSSING           0x0020
 
 #define OSM_HIGHWAY_BUS_STOP            1
 #define OSM_HIGHWAY_CONSTRUCTION        2
@@ -53,6 +55,7 @@ struct osm_way
 {
   uint32_t first_node;
   uint32_t node_count;
+  uint32_t name;
   uint16_t flags;
   uint8_t  highway;
   uint8_t  natural;
@@ -104,6 +107,8 @@ struct osm_tesselation
 
   uint32_t *line_indices;
   size_t line_index_count;
+
+  int32_t lat_offset, lon_offset;
 };
 
 struct osm_tesselation *

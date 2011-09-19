@@ -9,12 +9,14 @@
 
 enum polygon_layer
 {
+  /* Sorted by painting order */
   LAYER_RESIDENTIAL,
   LAYER_GRASS,
+  LAYER_CEMETERY,
   LAYER_WATER,
   LAYER_PATH,
-  LAYER_BIG_ROAD,
   LAYER_SMALL_ROAD,
+  LAYER_BIG_ROAD,
   LAYER_BUILDING,
 
   LAYER_INVALID
@@ -153,7 +155,7 @@ static void tess_combine(GLdouble coords[3], void *d[4], GLfloat w[4], struct os
 }
 
 static void
-add_vertex (double lon, double lat)
+add_vertex (int do_contour, double lon, double lat)
 {
   struct osm_node *new_node;
   double coords[3];
@@ -167,11 +169,13 @@ add_vertex (double lon, double lat)
   coords[2] = 0;
 
   gluTessVertex(tess, coords, (void *) new_node);
-  gluTessVertex(tess_contour, coords, (void *) new_node);
+
+  if (do_contour)
+    gluTessVertex(tess_contour, coords, (void *) new_node);
 }
 
 static void
-add_line (float width, float x0, float y0, float x1, float y1)
+add_line (float width, int do_contour, float x0, float y0, float x1, float y1)
 {
   static const size_t count = 7;
 
@@ -196,7 +200,7 @@ add_line (float width, float x0, float y0, float x1, float y1)
     c = cosf(M_PI * i / count);
     s = sinf(M_PI * i / count);
 
-    add_vertex (x0 - c * nx + s * ny, y0 - c * ny - s * nx);
+    add_vertex (do_contour, x0 - c * nx + s * ny, y0 - c * ny - s * nx);
   }
 
   for(i = 0; i <= count; ++i)
@@ -204,7 +208,7 @@ add_line (float width, float x0, float y0, float x1, float y1)
     c = cosf(M_PI * i / count);
     s = sinf(M_PI * i / count);
 
-    add_vertex (x1 + c * nx - s * ny, y1 + c * ny + s * nx);
+    add_vertex (do_contour, x1 + c * nx - s * ny, y1 + c * ny + s * nx);
   }
 }
 
@@ -267,7 +271,7 @@ osm_tesselate ()
   const struct osm_node *prev_node, *node;
   size_t i, j;
 
-  double polygon[1024][3];
+  double polygon[16384][3];
 
   ARRAY_INIT (&batches);
 
@@ -293,7 +297,7 @@ osm_tesselate ()
           LINE, POLYGON, NONE
         } mode = NONE;
 
-      uint32_t contour_color = 0;
+      int do_contour = 0;
       double line_thickness = 0;
 
       tess = gluNewTess();
@@ -313,6 +317,11 @@ osm_tesselate ()
           polygon_layer = LAYER_GRASS;
           mode = POLYGON;
         }
+      else if (way->flags & OSM_WAY_CEMETERY)
+        {
+          polygon_layer = LAYER_CEMETERY;
+          mode = POLYGON;
+        }
       else if (way->flags & OSM_WAY_RESIDENTIAL)
         {
           polygon_layer = LAYER_RESIDENTIAL;
@@ -321,12 +330,14 @@ osm_tesselate ()
       else if (way->flags & OSM_WAY_BUILDING)
         {
           polygon_layer = LAYER_BUILDING;
+          do_contour = 1;
           mode = POLYGON;
         }
       else if (way->natural)
         {
           switch (way->natural)
             {
+            case OSM_NATURAL_COASTLINE:
             case OSM_NATURAL_WATER:
 
               polygon_layer = LAYER_WATER;
@@ -348,6 +359,7 @@ osm_tesselate ()
 
               polygon_layer = LAYER_SMALL_ROAD;
               line_thickness = 0.8e3;
+              do_contour = 1;
               mode = LINE;
 
               break;
@@ -356,6 +368,9 @@ osm_tesselate ()
             case OSM_HIGHWAY_PEDESTRIAN:
             case OSM_HIGHWAY_PATH:
             case OSM_HIGHWAY_FOOTWAY:
+
+              if (way->flags & OSM_WAY_CROSSING)
+                break;
 
               polygon_layer = LAYER_PATH;
               line_thickness = 0.3e3;
@@ -374,6 +389,7 @@ osm_tesselate ()
 
               polygon_layer = LAYER_BIG_ROAD;
               line_thickness = 1.0e3;
+              do_contour = 1;
               mode = LINE;
 
               break;
@@ -402,24 +418,14 @@ osm_tesselate ()
               gluTessVertex(tess, coords, (void *) node);
             }
 
-          if (contour_color)
+          if (do_contour)
             {
-#if 0
-              for (i = 1; i < way->node_count; ++i)
-                {
-                  size_t j;
+              contour_begin (GL_LINE_LOOP);
 
-                  j = line_vertex_count++;
-                  line_vertices[j].x = polygon[i - 1][0];
-                  line_vertices[j].y = polygon[i - 1][1];
-                  line_vertices[j].color = contour_color;
+              for (i = 0; i < way->node_count; ++i)
+                contour_vertex (&nodes[node_refs[way->first_node + i]]);
 
-                  j = line_vertex_count++;
-                  line_vertices[j].x = polygon[i][0];
-                  line_vertices[j].y = polygon[i][1];
-                  line_vertices[j].color = contour_color;
-                }
-#endif
+              contour_end ();
             }
 
           gluTessEndContour (tess);
@@ -444,7 +450,7 @@ osm_tesselate ()
                       gluTessBeginContour (tess);
                       gluTessBeginContour (tess_contour);
 
-                      add_line (line_thickness,
+                      add_line (line_thickness, do_contour,
                                 prev_node->lon, prev_node->lat,
                                 node->lon, node->lat);
 
@@ -476,11 +482,25 @@ osm_tesselate ()
   result->vertex_count = node_count;
   result->vertices = calloc (result->vertex_count, sizeof (*result->vertices));
 
+  int64_t center_lat = 0, center_lon = 0;
+
   for (i = 0; i < result->vertex_count; ++i)
     {
-      result->vertices[i].x = nodes[i].lon;
-      result->vertices[i].y = nodes[i].lat;
+      center_lat += nodes[i].lat;
+      center_lon += nodes[i].lon;
     }
+
+  center_lat /= result->vertex_count;
+  center_lon /= result->vertex_count;
+
+  for (i = 0; i < result->vertex_count; ++i)
+    {
+      result->vertices[i].x = nodes[i].lon - center_lon;
+      result->vertices[i].y = nodes[i].lat - center_lat;
+    }
+
+  result->lat_offset = center_lat;
+  result->lon_offset = center_lon;
 
   result->index_count = ARRAY_COUNT (&triangles) * 3;
   result->indices = calloc (result->index_count, sizeof (*result->indices));
@@ -508,6 +528,15 @@ osm_tesselate ()
               batch.color[0] = 0xc9 / 255.0f;
               batch.color[1] = 0xdf / 255.0f;
               batch.color[2] = 0xaf / 255.0f;
+              batch.color[3] = 1.0f;
+
+              break;
+
+            case LAYER_CEMETERY:
+
+              batch.color[0] = 0xdf / 255.0f;
+              batch.color[1] = 0xdb / 255.0f;
+              batch.color[2] = 0xd4 / 255.0f;
               batch.color[3] = 1.0f;
 
               break;
@@ -550,9 +579,9 @@ osm_tesselate ()
 
             case LAYER_BUILDING:
 
-              batch.color[0] = 0x3c / 255.0f;
-              batch.color[1] = 0x3b / 255.0f;
-              batch.color[2] = 0x38 / 255.0f;
+              batch.color[0] = 0xec / 255.0f;
+              batch.color[1] = 0xeb / 255.0f;
+              batch.color[2] = 0xe8 / 255.0f;
               batch.color[3] = 1.0f;
 
               break;

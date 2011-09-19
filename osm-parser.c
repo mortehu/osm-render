@@ -13,6 +13,7 @@
 #define OSM_MAX_NODES     1000000
 #define OSM_MAX_NODE_REFS 1000000
 #define OSM_MAX_WAYS       100000
+#define OSM_MAX_STRINGS    100000
 
 struct osm_node nodes[OSM_MAX_NODES];
 size_t node_count;
@@ -23,6 +24,9 @@ size_t node_ref_count;
 
 struct osm_way ways[OSM_MAX_WAYS];
 size_t way_count;
+
+char strings[OSM_MAX_STRINGS];
+size_t strings_length;
 
 int32_t min_lat, min_lon;
 int32_t max_lat, max_lon;
@@ -178,8 +182,15 @@ osm_start_element (void *user_data, const XML_Char *name,
               if (!strcmp (v, "residential")
                   || !strcmp (v, "retail"))
                 last_way->flags |= OSM_WAY_RESIDENTIAL;
+              else if (!strcmp (v, "cemetery"))
+                last_way->flags |= OSM_WAY_CEMETERY;
             }
-          if (!strcmp (k, "leisure"))
+          else if (!strcmp (k, "footway"))
+            {
+              if (!strcmp (v, "crossing"))
+                last_way->flags |= OSM_WAY_CROSSING;
+            }
+          else if (!strcmp (k, "leisure"))
             {
               if (!strcmp (v, "park"))
                 last_way->flags |= OSM_WAY_PARK;
@@ -272,8 +283,19 @@ osm_start_element (void *user_data, const XML_Char *name,
             }
           else if (!strcmp (k, "building"))
             {
-              if (!strcmp (v, "yes"))
+              /*if (!strcmp (v, "yes"))*/
                 last_way->flags |= OSM_WAY_BUILDING;
+            }
+          else if (!strcmp (k, "name"))
+            {
+              size_t len;
+
+              last_way->name = strings_length;
+
+              len = strlen (v) + 1;
+
+              memcpy (strings + strings_length, v, len);
+              strings_length += len;
             }
         }
     }

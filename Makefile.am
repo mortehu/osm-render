@@ -1,6 +1,6 @@
 bin_PROGRAMS = osm
 
-AM_CFLAGS = -pthread -Wall -g
+AM_CFLAGS = -pthread -Wall -g -O1
 
 osm_SOURCES =     \
   array.c array.h \

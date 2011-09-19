@@ -28,6 +28,8 @@ static int map_shader;
 
 static int background;
 
+static int arial;
+
 static struct osm_tesselation *mesh;
 
 static var* window_width = 0;
@@ -50,6 +52,8 @@ game_init (int argc, char **argv)
   map_shader = draw_load_shader ("map", map_shader_attributes);
   background = texture_load ("color:ffefebef");
 
+  arial = font_load ("gfx/arial");
+
   glEnable (GL_TEXTURE_2D);
   glEnable (GL_BLEND);
   glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -61,56 +65,30 @@ game_init (int argc, char **argv)
 }
 
 void
-flush_lines ()
-{
-#if 0
-  size_t offset = 0;
-  float window_size[2];
-
-  if (!line_vertex_count)
-    return;
-
-  draw_bind_shader (map_shader);
-
-  glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, sizeof (struct vertex), line_vertices);
-  glEnableVertexAttribArray (0);
-  offset += 2 * sizeof (float);
-
-  glVertexAttribPointer (1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof (struct vertex), (const char *) line_vertices + offset);
-  glEnableVertexAttribArray (1);
-
-  window_size[0] = 1.0f / window_width->vfloat;
-  window_size[1] = 1.0f / window_height->vfloat;
-
-  draw_set_uniformf (map_shader, "window_size", window_size, 2);
-
-  glDrawArrays (GL_LINES, 0, line_vertex_count);
-
-  line_vertex_count = 0;
-#endif
-}
-
-void
 osm_tesselation_draw (struct osm_tesselation *mesh)
 {
   size_t i;
   const struct osm_batch *batch;
 
+  float color[4];
   float window_size[2];
-  float zoom_product;
+  float pan_transf[2];
+  float zoom_transf;
 
   draw_bind_shader (map_shader);
 
   glVertexAttribPointer (0, 2, GL_INT, GL_FALSE, sizeof (*mesh->vertices), mesh->vertices);
   glEnableVertexAttribArray (0);
 
+  zoom_transf = zoom * window_width->vfloat;
+  draw_set_uniformf (map_shader, "zoom", &zoom_transf, 1);
+
+  pan_transf[0] = pan[0] - mesh->lat_offset;
+  pan_transf[1] = pan[1] - mesh->lon_offset;
+  draw_set_uniformf (map_shader, "pan", pan_transf, 2);
+
   window_size[0] = 1.0f / window_width->vfloat;
   window_size[1] = 1.0f / window_height->vfloat;
-
-  zoom_product = zoom * window_width->vfloat;
-  draw_set_uniformf (map_shader, "zoom", &zoom_product, 1);
-
-  draw_set_uniformd (map_shader, "pan", pan, 2);
   draw_set_uniformf (map_shader, "window_size", window_size, 2);
 
   for (i = 0; i < mesh->batch_count; ++i)
@@ -122,18 +100,18 @@ osm_tesselation_draw (struct osm_tesselation *mesh)
       glDrawElements (GL_TRIANGLES, batch->index_count, GL_UNSIGNED_INT, mesh->indices + batch->first_index);
     }
 
-    {
-      float color[4];
+  color[0] = 0xcc / 255.0f;
+  color[1] = 0xc5 / 255.0f;
+  color[2] = 0xbd / 255.0f;
+  color[3] = 1.0f;
 
-      color[0] = 0xdc / 255.0f;
-      color[1] = 0xd5 / 255.0f;
-      color[2] = 0xcd / 255.0f;
-      color[3] = 1.0f;
+  draw_set_uniformf (map_shader, "color", color, 4);
 
-      draw_set_uniformf (map_shader, "color", batch->color, 4);
+  glDrawElements (GL_LINES, mesh->line_index_count, GL_UNSIGNED_INT, mesh->line_indices);
 
-      glDrawElements (GL_LINES, mesh->line_index_count, GL_UNSIGNED_INT, mesh->line_indices);
-    }
+  draw_set_color (0xff000000);
+  font_draw(arial, 11, "Hest er best, ingen protest", 100.0f, 100.0f, 0);
+  draw_flush ();
 }
 
 void
@@ -166,7 +144,8 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
 
       zoom = new_zoom;
     }
-  else if (mouse->button_states[2] & button_force_mask)
+
+  if (mouse->button_states[2] & button_force_mask)
     {
       double new_zoom;
 
