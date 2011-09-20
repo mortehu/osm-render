@@ -17,6 +17,7 @@ struct osm_node
 #define OSM_WAY_RESIDENTIAL        0x0008
 #define OSM_WAY_CEMETERY           0x0010
 #define OSM_WAY_CROSSING           0x0020
+#define OSM_WAY_SIDEWALK           0x0040
 
 #define OSM_HIGHWAY_BUS_STOP            1
 #define OSM_HIGHWAY_CONSTRUCTION        2
@@ -94,6 +95,8 @@ struct osm_batch
   uint32_t index_count;
 };
 
+/***********************************************************************/
+
 struct osm_tesselation
 {
   struct osm_vertex *vertices;
@@ -113,5 +116,24 @@ struct osm_tesselation
 
 struct osm_tesselation *
 osm_tesselate ();
+
+/***********************************************************************/
+
+struct osm_tag
+{
+  uint32_t way;
+  const char *tag;
+};
+
+void
+osm_tag_add (uint32_t way, const char *key, const char *value);
+
+size_t
+osm_tags_get (uint32_t way, struct osm_tag *result, size_t count);
+
+/***********************************************************************/
+
+size_t
+osm_intersect (double lat, double lon, uint32_t *result, size_t count);
 
 #endif /* !OSM_H_ */

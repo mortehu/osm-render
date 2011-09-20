@@ -7,8 +7,11 @@ osm_SOURCES =     \
   main.c osm.h    \
   osm-node-find.c \
   osm-node-sort.c \
+  osm-intersect.c \
   osm-parser.c    \
-  osm-tesselate.c
+  osm-tags.c      \
+  osm-tesselate.c \
+  string-pool.c
 
 osm_LDFLAGS = -lexpat -lGL -lGLU -lGLEW -lX11 -lXi -lm -lpng
 osm_LDADD = /usr/local/lib/libcelsius.a

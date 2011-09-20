@@ -10,10 +10,10 @@
 enum polygon_layer
 {
   /* Sorted by painting order */
-  LAYER_RESIDENTIAL,
   LAYER_GRASS,
   LAYER_CEMETERY,
   LAYER_WATER,
+  LAYER_PEDESTRIAN_ZONE,
   LAYER_PATH,
   LAYER_SMALL_ROAD,
   LAYER_BIG_ROAD,
@@ -312,87 +312,108 @@ osm_tesselate ()
 
       way = &ways[j];
 
-      if (way->flags & OSM_WAY_PARK)
+      if (node_refs[way->first_node] == node_refs[way->first_node + way->node_count - 1])
         {
-          polygon_layer = LAYER_GRASS;
-          mode = POLYGON;
-        }
-      else if (way->flags & OSM_WAY_CEMETERY)
-        {
-          polygon_layer = LAYER_CEMETERY;
-          mode = POLYGON;
-        }
-      else if (way->flags & OSM_WAY_RESIDENTIAL)
-        {
-          polygon_layer = LAYER_RESIDENTIAL;
-          mode = POLYGON;
-        }
-      else if (way->flags & OSM_WAY_BUILDING)
-        {
-          polygon_layer = LAYER_BUILDING;
-          do_contour = 1;
-          mode = POLYGON;
-        }
-      else if (way->natural)
-        {
-          switch (way->natural)
+          if (way->flags & OSM_WAY_PARK)
             {
-            case OSM_NATURAL_COASTLINE:
-            case OSM_NATURAL_WATER:
-
-              polygon_layer = LAYER_WATER;
+              polygon_layer = LAYER_GRASS;
               mode = POLYGON;
+            }
+          else if (way->flags & OSM_WAY_CEMETERY)
+            {
+              polygon_layer = LAYER_CEMETERY;
+              mode = POLYGON;
+            }
+          else if (way->flags & OSM_WAY_BUILDING)
+            {
+              polygon_layer = LAYER_BUILDING;
+              do_contour = 1;
+              mode = POLYGON;
+            }
+          else if (way->natural)
+            {
+              switch (way->natural)
+                {
+                case OSM_NATURAL_COASTLINE:
+                case OSM_NATURAL_WATER:
 
-              break;
+                  polygon_layer = LAYER_WATER;
+                  mode = POLYGON;
+
+                  break;
+                }
+            }
+          else if (way->highway)
+            {
+              switch (way->highway)
+                {
+                case OSM_HIGHWAY_CYCLEWAY:
+                case OSM_HIGHWAY_PEDESTRIAN:
+                case OSM_HIGHWAY_PATH:
+                case OSM_HIGHWAY_FOOTWAY:
+
+                  if (way->flags & (OSM_WAY_CROSSING | OSM_WAY_SIDEWALK))
+                    break;
+
+                  polygon_layer = LAYER_PEDESTRIAN_ZONE;
+                  mode = POLYGON;
+
+                  break;
+                }
             }
         }
-      else if (way->highway)
+
+      if (mode == NONE)
         {
-          switch (way->highway)
+          if (way->highway)
             {
-            case OSM_HIGHWAY_TERTIARY:
-            case OSM_HIGHWAY_LIVING_STREET:
-            case OSM_HIGHWAY_RESIDENTIAL:
-            case OSM_HIGHWAY_ROAD:
-            case OSM_HIGHWAY_SERVICE:
-            case OSM_HIGHWAY_STEPS:
+              switch (way->highway)
+                {
+                case OSM_HIGHWAY_TERTIARY:
+                case OSM_HIGHWAY_LIVING_STREET:
+                case OSM_HIGHWAY_RESIDENTIAL:
+                case OSM_HIGHWAY_ROAD:
+                case OSM_HIGHWAY_SERVICE:
+                case OSM_HIGHWAY_UNCLASSIFIED:
 
-              polygon_layer = LAYER_SMALL_ROAD;
-              line_thickness = 0.8e3;
-              do_contour = 1;
-              mode = LINE;
+                  polygon_layer = LAYER_SMALL_ROAD;
+                  line_thickness = 0.8e3;
+                  do_contour = 1;
+                  mode = LINE;
 
-              break;
+                  break;
 
-            case OSM_HIGHWAY_CYCLEWAY:
-            case OSM_HIGHWAY_PEDESTRIAN:
-            case OSM_HIGHWAY_PATH:
-            case OSM_HIGHWAY_FOOTWAY:
+                case OSM_HIGHWAY_CYCLEWAY:
+                case OSM_HIGHWAY_PEDESTRIAN:
+                case OSM_HIGHWAY_PATH:
+                case OSM_HIGHWAY_FOOTWAY:
 
-              if (way->flags & OSM_WAY_CROSSING)
-                break;
+                  if (way->flags & (OSM_WAY_CROSSING | OSM_WAY_SIDEWALK))
+                    break;
 
-              polygon_layer = LAYER_PATH;
-              line_thickness = 0.3e3;
-              mode = LINE;
+                  polygon_layer = LAYER_PATH;
+                  line_thickness = 0.3e3;
 
-              break;
+                  mode = LINE;
 
-            case OSM_HIGHWAY_TRUNK:
-            case OSM_HIGHWAY_TRUNK_LINK:
-            case OSM_HIGHWAY_TURNING_CIRCLE:
-            case OSM_HIGHWAY_MOTORWAY:
-            case OSM_HIGHWAY_MOTORWAY_JUNCTION:
-            case OSM_HIGHWAY_MOTORWAY_LINK:
-            case OSM_HIGHWAY_PRIMARY:
-            case OSM_HIGHWAY_SECONDARY:
+                  break;
 
-              polygon_layer = LAYER_BIG_ROAD;
-              line_thickness = 1.0e3;
-              do_contour = 1;
-              mode = LINE;
+                case OSM_HIGHWAY_TRUNK:
+                case OSM_HIGHWAY_TRUNK_LINK:
+                case OSM_HIGHWAY_TURNING_CIRCLE:
+                case OSM_HIGHWAY_MOTORWAY:
+                case OSM_HIGHWAY_MOTORWAY_JUNCTION:
+                case OSM_HIGHWAY_MOTORWAY_LINK:
+                case OSM_HIGHWAY_PRIMARY:
+                case OSM_HIGHWAY_SECONDARY:
 
-              break;
+                  polygon_layer = LAYER_BIG_ROAD;
+                  line_thickness = 1.0e3;
+                  do_contour = 1;
+                  mode = LINE;
+
+                  break;
+                }
             }
         }
 
@@ -400,12 +421,15 @@ osm_tesselate ()
         {
         case POLYGON:
 
+          if (node_refs[way->first_node] != node_refs[way->first_node + way->node_count - 1])
+            break;
+
           assert (way->node_count <= sizeof (polygon) / sizeof (polygon[0]));
 
           gluTessBeginPolygon(tess, 0);
           gluTessBeginContour(tess);
 
-          for (i = 0; i < way->node_count; ++i)
+          for (i = 0; i + 1 < way->node_count; ++i)
             {
               double coords[3];
 
@@ -422,7 +446,7 @@ osm_tesselate ()
             {
               contour_begin (GL_LINE_LOOP);
 
-              for (i = 0; i < way->node_count; ++i)
+              for (i = 0; i + 1 < way->node_count; ++i)
                 contour_vertex (&nodes[node_refs[way->first_node + i]]);
 
               contour_end ();
@@ -550,6 +574,15 @@ osm_tesselate ()
 
               break;
 
+            case LAYER_PEDESTRIAN_ZONE:
+
+              batch.color[0] = 0xdf / 255.0f;
+              batch.color[1] = 0xdb / 255.0f;
+              batch.color[2] = 0xd4 / 255.0f;
+              batch.color[3] = 1.0f;
+
+              break;
+
             case LAYER_PATH:
 
               batch.color[0] = 0xcc / 255.0f;
@@ -582,15 +615,6 @@ osm_tesselate ()
               batch.color[0] = 0xec / 255.0f;
               batch.color[1] = 0xeb / 255.0f;
               batch.color[2] = 0xe8 / 255.0f;
-              batch.color[3] = 1.0f;
-
-              break;
-
-            case LAYER_RESIDENTIAL:
-
-              batch.color[0] = 0xef / 255.0f;
-              batch.color[1] = 0xeb / 255.0f;
-              batch.color[2] = 0xe2 / 255.0f;
               batch.color[3] = 1.0f;
 
               break;

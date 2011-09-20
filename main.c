@@ -38,6 +38,8 @@ static var* window_height = 0;
 static double pan[2] = { 1.42949e+09, 1.27794e+08 };
 static double zoom = 1.74891e-06;
 
+static char message[4096];
+
 void
 game_init (int argc, char **argv)
 {
@@ -50,7 +52,7 @@ game_init (int argc, char **argv)
   mesh = osm_tesselate ();
 
   map_shader = draw_load_shader ("map", map_shader_attributes);
-  background = texture_load ("color:ffefebef");
+  background = texture_load ("color:fff0f3f4");
 
   arial = font_load ("gfx/arial");
 
@@ -110,7 +112,9 @@ osm_tesselation_draw (struct osm_tesselation *mesh)
   glDrawElements (GL_LINES, mesh->line_index_count, GL_UNSIGNED_INT, mesh->line_indices);
 
   draw_set_color (0xff000000);
-  font_draw(arial, 11, "Hest er best, ingen protest", 100.0f, 100.0f, 0);
+  font_draw(arial, 13, message, 11.0f, 16.0f, 0);
+  draw_set_color (0xffffffff);
+  font_draw(arial, 13, message, 10.0f, 15.0f, 0);
   draw_flush ();
 }
 
@@ -119,6 +123,8 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
 {
   device_state *device_states;
   int device_count;
+
+  double mouse_lat, mouse_lon;
 
   device_states = input_get_device_states (&device_count);
 
@@ -131,6 +137,33 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
   if (keyboard->button_states[common_keys.space] & button_pressed)
     {
       info ("%g %g %g", pan[0], pan[1], zoom);
+    }
+
+  mouse_lat = ((height - mouse->position_states[1]) / (width * zoom) + pan[0]) / 0x7fffffff * 90.0;
+  mouse_lon = (mouse->position_states[0] / (width * zoom) + pan[1]) / 0x7fffffff * 180.0;
+
+  if (mouse->button_states[1] & button_pressed)
+    {
+      size_t hit_way_count, i, j;
+      uint32_t hit_ways[16];
+
+      hit_way_count = osm_intersect (mouse_lon, mouse_lat, hit_ways, sizeof (hit_ways) / sizeof (hit_ways[0]));
+
+      sprintf (message, "%.4f %.4f: ", mouse_lat, mouse_lon);
+
+      for (i = 0; i < hit_way_count; ++i)
+        {
+          size_t tag_count;
+          struct osm_tag hit_tags[16];
+
+          tag_count = osm_tags_get (hit_ways[i], hit_tags, sizeof (hit_tags) / sizeof (hit_tags[0]));
+
+          for (j = 0; j < tag_count; ++j)
+            {
+              strcat (message, hit_tags[j].tag);
+              strcat (message, "  ");
+            }
+        }
     }
 
   if (mouse->button_states[0] & button_force_mask)
@@ -157,7 +190,8 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
       zoom = new_zoom;
     }
 
-  glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glClearColor (0xf4 / 255.0f, 0xf3 / 255.0f, 0xf0 / 255.0f, 1.0f);
+  glClear (GL_COLOR_BUFFER_BIT);
 
   osm_tesselation_draw (mesh);
 }

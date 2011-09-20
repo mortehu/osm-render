@@ -177,6 +177,8 @@ osm_start_element (void *user_data, const XML_Char *name,
         }
       else if (last_way)
         {
+          osm_tag_add (last_way - ways, k, v);
+
           if (!strcmp (k, "landuse"))
             {
               if (!strcmp (v, "residential")
@@ -189,6 +191,8 @@ osm_start_element (void *user_data, const XML_Char *name,
             {
               if (!strcmp (v, "crossing"))
                 last_way->flags |= OSM_WAY_CROSSING;
+              else if (!strcmp (v, "sidewalk"))
+                last_way->flags |= OSM_WAY_SIDEWALK;
             }
           else if (!strcmp (k, "leisure"))
             {
