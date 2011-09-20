@@ -644,8 +644,8 @@ osm_tesselate ()
         max_lon = nodes[i].lon;
     }
 
-  result->lat_offset = (max_lat - min_lat) / 2;
-  result->lon_offset = (max_lon - min_lon) / 2;
+  result->lat_offset = max_lat / 2 + min_lat / 2;
+  result->lon_offset = max_lon / 2 + min_lon / 2;
 
   for (i = 0; i < result->vertex_count; ++i)
     {
