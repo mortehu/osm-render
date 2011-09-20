@@ -241,18 +241,24 @@ osm_start_element (void *user_data, const XML_Char *name,
                 last_way->highway = OSM_HIGHWAY_PEDESTRIAN;
               else if (!strcmp (v, "primary"))
                 last_way->highway = OSM_HIGHWAY_PRIMARY;
+              else if (!strcmp (v, "primary_link"))
+                last_way->highway = OSM_HIGHWAY_PRIMARY_LINK;
               else if (!strcmp (v, "residential"))
                 last_way->highway = OSM_HIGHWAY_RESIDENTIAL;
               else if (!strcmp (v, "road"))
                 last_way->highway = OSM_HIGHWAY_ROAD;
               else if (!strcmp (v, "secondary"))
                 last_way->highway = OSM_HIGHWAY_SECONDARY;
+              else if (!strcmp (v, "secondary_link"))
+                last_way->highway = OSM_HIGHWAY_SECONDARY_LINK;
               else if (!strcmp (v, "service"))
                 last_way->highway = OSM_HIGHWAY_SERVICE;
               else if (!strcmp (v, "steps"))
                 last_way->highway = OSM_HIGHWAY_STEPS;
               else if (!strcmp (v, "tertiary"))
                 last_way->highway = OSM_HIGHWAY_TERTIARY;
+              else if (!strcmp (v, "track"))
+                last_way->highway = OSM_HIGHWAY_TRACK;
               else if (!strcmp (v, "traffic_signals"))
                 last_way->highway = OSM_HIGHWAY_TRAFFIC_SIGNALS;
               else if (!strcmp (v, "trunk"))
@@ -264,7 +270,7 @@ osm_start_element (void *user_data, const XML_Char *name,
               else if (!strcmp (v, "unclassified"))
                 last_way->highway = OSM_HIGHWAY_UNCLASSIFIED;
               else
-                assert (!"Unknown 'highway' type");
+                errx (EXIT_FAILURE, "Unknown 'highway' type '%s'", v);
             }
           else if (!strcmp (k, "natural"))
             {
@@ -276,6 +282,8 @@ osm_start_element (void *user_data, const XML_Char *name,
                 last_way->natural = OSM_NATURAL_COASTLINE;
               else if (!strcmp (v, "land"))
                 last_way->natural = OSM_NATURAL_LAND;
+              else if (!strcmp (v, "scrub"))
+                last_way->natural = OSM_NATURAL_SCRUB;
               else if (!strcmp (v, "tree"))
                 last_way->natural = OSM_NATURAL_TREE;
               else if (!strcmp (v, "water"))
@@ -283,7 +291,7 @@ osm_start_element (void *user_data, const XML_Char *name,
               else if (!strcmp (v, "wood"))
                 last_way->natural = OSM_NATURAL_WOOD;
               else
-                assert (!"Unknown 'natural' type");
+                fprintf (stderr, "Unknown 'natural' type '%s'\n", v);
             }
           else if (!strcmp (k, "building"))
             {
