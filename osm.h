@@ -74,6 +74,9 @@ extern size_t node_ref_count;
 extern struct osm_way ways[];
 extern size_t way_count;
 
+extern char strings[];
+extern size_t strings_length;
+
 void
 osm_node_sort (struct osm_node *nodes, size_t count);
 
@@ -82,6 +85,8 @@ osm_node_find (uint64_t id, const struct osm_node *nodes, size_t count);
 
 void
 osm_parse (int fd);
+
+/***********************************************************************/
 
 struct osm_vertex
 {
@@ -95,7 +100,12 @@ struct osm_batch
   uint32_t index_count;
 };
 
-/***********************************************************************/
+struct osm_label
+{
+  char *text;
+  uint32_t first_index;
+  uint32_t index_count;
+};
 
 struct osm_tesselation
 {
@@ -110,6 +120,12 @@ struct osm_tesselation
 
   uint32_t *line_indices;
   size_t line_index_count;
+
+  uint32_t *label_indices;
+  size_t label_index_count;
+
+  struct osm_label *labels;
+  size_t label_count;
 
   int32_t lat_offset, lon_offset;
 };

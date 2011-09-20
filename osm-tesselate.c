@@ -4,6 +4,8 @@
 
 #include <GL/glu.h>
 
+#include <celsius/vector.h>
+
 #include "array.h"
 #include "osm.h"
 
@@ -258,9 +260,93 @@ OSM_TESSELATE_sort (struct triangle *triangles, size_t count)
     }
 }
 
+static int
+int_line_line (int a0x, int a0y, int a1x, int a1y,
+               int b0x, int b0y, int b1x, int b1y)
+{
+  float ua, ub;
+
+  ua = (float) ((b1x - b0x) * (a0y - b0y) - (b1y - b0y) * (a0x - b0x)) / ((b1y - b0y) * (a1x - a0x) - (b1x - b0x) * (a1y - a0y));
+  ub = (float) ((a1x - a0x) * (a0y - b0y) - (a1y - a0y) * (a0x - b0x)) / ((b1y - b0y) * (a1x - a0x) - (b1x - b0x) * (a1y - a0y));
+
+  return ua >= 0 && ua <= 1.0f && ub >= 0 && ub <= 1.0f;
+}
+
+static size_t
+add_labeled_way (uint32_t first_node_ref, uint32_t node_count,
+                 const struct osm_label *labels, size_t label_count,
+                 const uint32_t *label_indices)
+{
+  size_t i, j, k;
+  const struct osm_label *label;
+  uint32_t a0, a1, b0, b1;
+  int32_t a0x, a0y, a1x, a1y;
+  int32_t b0x, b0y, b1x, b1y;
+
+  size_t length = node_count;
+
+  for (i = 0; i < label_count; ++i)
+    {
+      label = &labels[i];
+
+      for (j = 0; j < length; ++j)
+        {
+          a0 = node_refs[first_node_ref + j];
+
+          for (k = 1; k + 1 < label->index_count; ++k)
+            {
+              b0 = label_indices[label->first_index + k];
+
+              if (a0 == b0)
+                {
+                  length = j;
+
+                  break;
+                }
+            }
+        }
+
+      for (j = 0; j + 1 < length; ++j)
+        {
+          a0 = node_refs[first_node_ref + j];
+          a1 = node_refs[first_node_ref + j + 1];
+
+          a0x = nodes[a0].lon;
+          a0y = nodes[a0].lat;
+
+          a1x = nodes[a1].lon;
+          a1y = nodes[a1].lat;
+
+          for (k = 1; k + 2 < label->index_count; ++k)
+            {
+              b0 = label_indices[label->first_index + k];
+              b1 = label_indices[label->first_index + k + 1];
+
+              b0x = nodes[b0].lon;
+              b0y = nodes[b0].lat;
+
+              b1x = nodes[b1].lon;
+              b1y = nodes[b1].lat;
+
+              if (int_line_line (a0x, a0y, a1x, a1y, b0x, b0y, b1x, b1y))
+                {
+                  length = j;
+
+                  break;
+                }
+            }
+        }
+    }
+
+  return length;
+}
+
 struct osm_tesselation *
 osm_tesselate ()
 {
+  ARRAY (uint32_t) label_indices;
+  ARRAY (struct osm_label) labels;
+
   ARRAY (struct osm_batch) batches;
   enum polygon_layer prev_layer = LAYER_INVALID;
   struct osm_batch batch;
@@ -269,9 +355,12 @@ osm_tesselate ()
 
   const struct osm_way *way;
   const struct osm_node *prev_node, *node;
-  size_t i, j;
+  size_t i, j, k;
 
   double polygon[16384][3];
+
+  ARRAY_INIT (&label_indices);
+  ARRAY_INIT (&labels);
 
   ARRAY_INIT (&batches);
 
@@ -413,6 +502,36 @@ osm_tesselate ()
                   mode = LINE;
 
                   break;
+
+                default:
+
+                  continue;
+                }
+
+              if (way->name)
+                {
+                  struct osm_label new_label;
+                  size_t length = 0;
+
+                  for (i = 0; i + 1 < way->node_count; i += length + 1)
+                    {
+                      length
+                        = add_labeled_way (way->first_node + i, way->node_count - i,
+                                           &ARRAY_GET (&labels, 0), ARRAY_COUNT (&labels),
+                                           &ARRAY_GET (&label_indices, 0));
+
+                      if (length)
+                        {
+                          new_label.text = strings + way->name;
+                          new_label.first_index = ARRAY_COUNT (&label_indices);
+                          new_label.index_count = length;
+
+                          ARRAY_ADD (&labels, new_label);
+
+                          for (k = 0; k < length; ++k)
+                            ARRAY_ADD (&label_indices, node_refs[way->first_node + i + k]);
+                        }
+                    }
                 }
             }
         }
@@ -506,25 +625,33 @@ osm_tesselate ()
   result->vertex_count = node_count;
   result->vertices = calloc (result->vertex_count, sizeof (*result->vertices));
 
-  int64_t center_lat = 0, center_lon = 0;
+  int32_t min_lat, max_lat;
+  int32_t min_lon, max_lon;
+
+  min_lat = max_lat = nodes[0].lat;
+  min_lon = max_lon = nodes[0].lon;
+
+  for (i = 1; i < result->vertex_count; ++i)
+    {
+      if (nodes[i].lat < min_lat)
+        min_lat = nodes[i].lat;
+      else if (nodes[i].lat > max_lat)
+        max_lat = nodes[i].lat;
+
+      if (nodes[i].lon < min_lon)
+        min_lon = nodes[i].lon;
+      else if (nodes[i].lon > max_lon)
+        max_lon = nodes[i].lon;
+    }
+
+  result->lat_offset = (max_lat - min_lat) / 2;
+  result->lon_offset = (max_lon - min_lon) / 2;
 
   for (i = 0; i < result->vertex_count; ++i)
     {
-      center_lat += nodes[i].lat;
-      center_lon += nodes[i].lon;
+      result->vertices[i].x = nodes[i].lon - result->lon_offset;
+      result->vertices[i].y = nodes[i].lat - result->lat_offset;
     }
-
-  center_lat /= result->vertex_count;
-  center_lon /= result->vertex_count;
-
-  for (i = 0; i < result->vertex_count; ++i)
-    {
-      result->vertices[i].x = nodes[i].lon - center_lon;
-      result->vertices[i].y = nodes[i].lat - center_lat;
-    }
-
-  result->lat_offset = center_lat;
-  result->lon_offset = center_lon;
 
   result->index_count = ARRAY_COUNT (&triangles) * 3;
   result->indices = calloc (result->index_count, sizeof (*result->indices));
@@ -644,10 +771,17 @@ osm_tesselate ()
   result->line_index_count = ARRAY_COUNT (&lines);
   result->line_indices = &ARRAY_GET (&lines, 0);
 
-  fprintf (stderr, "Batches: %u  Indices: %u  Vertices: %u\n",
+  result->label_index_count = ARRAY_COUNT (&label_indices);
+  result->label_indices = &ARRAY_GET (&label_indices, 0);
+
+  result->label_count = ARRAY_COUNT (&labels);
+  result->labels = &ARRAY_GET (&labels, 0);
+
+  fprintf (stderr, "Batches: %u  Indices: %u  Vertices: %u  Labels: %u\n",
            (unsigned int) result->batch_count,
            (unsigned int) result->index_count,
-           (unsigned int) result->vertex_count);
+           (unsigned int) result->vertex_count,
+           (unsigned int) result->label_count);
 
   return result;
 }

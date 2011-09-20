@@ -17,6 +17,7 @@
 #include <celsius/font.h>
 #include <celsius/input.h>
 #include <celsius/texture.h>
+#include <celsius/vector.h>
 #include <celsius/var.h>
 
 #include "osm.h"
@@ -27,6 +28,7 @@ static device_state *mouse;
 static int map_shader;
 
 static int background;
+static int black;
 
 static int arial;
 
@@ -53,6 +55,7 @@ game_init (int argc, char **argv)
 
   map_shader = draw_load_shader ("map", map_shader_attributes);
   background = texture_load ("color:fff0f3f4");
+  black = texture_load ("color:ff000000");
 
   arial = font_load ("gfx/arial");
 
@@ -69,7 +72,7 @@ game_init (int argc, char **argv)
 void
 osm_tesselation_draw (struct osm_tesselation *mesh)
 {
-  size_t i;
+  size_t i, j;
   const struct osm_batch *batch;
 
   float color[4];
@@ -115,7 +118,39 @@ osm_tesselation_draw (struct osm_tesselation *mesh)
   font_draw(arial, 13, message, 11.0f, 16.0f, 0);
   draw_set_color (0xffffffff);
   font_draw(arial, 13, message, 10.0f, 15.0f, 0);
-  draw_flush ();
+
+    {
+      draw_set_color (0xff000000);
+
+      for (i = 0; i < mesh->label_count; ++i)
+        {
+          const struct osm_label *label;
+          const struct osm_vertex *vertex;
+
+          vec2 *line;
+
+          label = &mesh->labels[i];
+
+          line = calloc (label->index_count, sizeof (*line));
+
+          for (j = 0; j < label->index_count; ++j)
+            {
+              assert (mesh->label_indices[label->first_index + j] < mesh->vertex_count);
+
+              vertex = &mesh->vertices[mesh->label_indices[label->first_index + j]];
+
+              vec2_set2f(&line[j],
+                         (vertex->x - pan_transf[1]) * zoom_transf,
+                         window_height->vfloat - ((vertex->y - pan_transf[0])) * zoom_transf);
+            }
+
+          font_path_draw (arial, 20, label->text, line, label->index_count);
+
+          free (line);
+        }
+
+      draw_flush ();
+    }
 }
 
 void
@@ -172,6 +207,9 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
 
       new_zoom = zoom * pow (4.0, delta_time);
 
+      if (new_zoom > 1.10944e-05)
+        new_zoom = 1.10944e-05;
+
       pan[1] = mouse->position_states[0] * (1.0 / zoom - 1.0 / new_zoom) / width + pan[1];
       pan[0] = (height - mouse->position_states[1]) * (1.0 / zoom - 1.0 / new_zoom) / width + pan[0];
 
@@ -194,4 +232,8 @@ game_process_frame (unsigned int width, unsigned int height, double delta_time)
   glClear (GL_COLOR_BUFFER_BIT);
 
   osm_tesselation_draw (mesh);
+
+  draw_set_color (0x1fffffff);
+  draw_quad (black, width * 0.5 - 160, height * 0.5 - 240, 320, 480);
+  draw_flush ();
 }
