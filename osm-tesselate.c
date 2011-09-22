@@ -289,7 +289,7 @@ add_labeled_way (uint32_t first_node_ref, uint32_t node_count,
     {
       label = &labels[i];
 
-      for (j = 0; j < length; ++j)
+      for (j = 1; j < length; ++j)
         {
           a0 = node_refs[first_node_ref + j];
 
@@ -306,6 +306,7 @@ add_labeled_way (uint32_t first_node_ref, uint32_t node_count,
             }
         }
 
+#if 0
       for (j = 0; j + 1 < length; ++j)
         {
           a0 = node_refs[first_node_ref + j];
@@ -336,6 +337,7 @@ add_labeled_way (uint32_t first_node_ref, uint32_t node_count,
                 }
             }
         }
+#endif
     }
 
   return length;
@@ -511,9 +513,10 @@ osm_tesselate ()
               if (way->name)
                 {
                   struct osm_label new_label;
-                  size_t length = 0;
+                  const struct osm_node *node;
+                  size_t length = 0, node_index;
 
-                  for (i = 0; i + 1 < way->node_count; i += length + 1)
+                  for (i = 0; i + 1 < way->node_count; i += length ? length : 1)
                     {
                       length
                         = add_labeled_way (way->first_node + i, way->node_count - i,
@@ -526,10 +529,36 @@ osm_tesselate ()
                           new_label.first_index = ARRAY_COUNT (&label_indices);
                           new_label.index_count = length;
 
-                          ARRAY_ADD (&labels, new_label);
-
                           for (k = 0; k < length; ++k)
-                            ARRAY_ADD (&label_indices, node_refs[way->first_node + i + k]);
+                            {
+                              node_index = node_refs[way->first_node + i + k];
+
+                              node = &nodes[node_index];
+
+                              if (!k)
+                                {
+                                  new_label.min_lat =
+                                  new_label.max_lat = node->lat;
+                                  new_label.min_lon =
+                                  new_label.max_lon = node->lon;
+                                }
+                              else
+                                {
+                                  if (node->lat < new_label.min_lat)
+                                    new_label.min_lat = node->lat;
+                                  else if (node->lat > new_label.max_lat)
+                                    new_label.max_lat = node->lat;
+
+                                  if (node->lon < new_label.min_lon)
+                                    new_label.min_lon = node->lon;
+                                  else if (node->lon > new_label.max_lon)
+                                    new_label.max_lon = node->lon;
+                                }
+
+                              ARRAY_ADD (&label_indices, node_index);
+                            }
+
+                          ARRAY_ADD (&labels, new_label);
                         }
                     }
                 }

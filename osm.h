@@ -116,6 +116,9 @@ struct osm_label
   char *text;
   uint32_t first_index;
   uint32_t index_count;
+
+  int32_t min_lat, max_lat;
+  int32_t min_lon, max_lon;
 };
 
 struct osm_tesselation

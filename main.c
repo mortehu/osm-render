@@ -37,7 +37,8 @@ static struct osm_tesselation *mesh;
 static var* window_width = 0;
 static var* window_height = 0;
 
-static double pan[2] = { 1.42949e+09, 1.27794e+08 };
+/*static double pan[2] = { 1.42949e+09, 1.27794e+08 };*/
+static double pan[2] = { 40.73 / 90.0 * 0x7fffffff, -74.0 / 180.0 * 0x7fffffff };
 static double zoom = 1.74891e-06;
 
 static char message[4096];
@@ -52,6 +53,11 @@ game_init (int argc, char **argv)
 
   osm_parse (0);
   mesh = osm_tesselate ();
+
+  /*
+  pan[0] = mesh->lat_offset;
+  pan[1] = mesh->lon_offset;
+  */
 
   map_shader = draw_load_shader ("map", map_shader_attributes);
   background = texture_load ("color:fff0f3f4");
@@ -79,6 +85,14 @@ osm_tesselation_draw (struct osm_tesselation *mesh)
   float window_size[2];
   float pan_transf[2];
   float zoom_transf;
+
+  int32_t min_lat, max_lat;
+  int32_t min_lon, max_lon;
+
+  min_lat = pan[0];
+  min_lon = pan[1];
+  max_lat = (window_height->vfloat / (window_width->vfloat * zoom) + pan[0]);
+  max_lon = 1.0 / zoom + pan[1];
 
   draw_bind_shader (map_shader);
 
@@ -130,6 +144,12 @@ osm_tesselation_draw (struct osm_tesselation *mesh)
           vec2 *line;
 
           label = &mesh->labels[i];
+
+          if (label->min_lat > max_lat
+              || label->max_lat < min_lat
+              || label->min_lon > max_lon
+              || label->max_lon < min_lon)
+            continue;
 
           line = calloc (label->index_count, sizeof (*line));
 
