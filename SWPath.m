@@ -16,7 +16,7 @@ ClipLineToHorizontalLine (const NSPoint *inside, NSPoint *outside, double y)
         return;
     }
 
-  outside->x += ((inside->y - outside->y) / (y - outside->y)) * (inside->x - outside->x);
+  outside->x += ((y - outside->y) / (inside->y - outside->y)) * (inside->x - outside->x);
   outside->y = y;
 }
 
@@ -34,13 +34,15 @@ ClipLineToVerticalLine (const NSPoint *inside, NSPoint *outside, double x)
         return;
     }
 
-  outside->y += ((inside->x - outside->x) / (x - outside->x)) * (inside->y - outside->y);
+  outside->y += ((x - outside->x) / (inside->x - outside->x)) * (inside->y - outside->y);
   outside->x = x;
 }
 
 static void
 ClipLineToRect (const NSPoint* inside, NSPoint* outside, NSRect rect)
 {
+  assert (NSPointInRect (*inside, rect));
+  assert (!NSPointInRect (*outside, rect));
   ClipLineToHorizontalLine (inside, outside, rect.origin.y);
   ClipLineToHorizontalLine (inside, outside, rect.origin.y + rect.size.height);
   ClipLineToVerticalLine (inside, outside, rect.origin.x);
@@ -123,6 +125,21 @@ ClipLineToRect (const NSPoint* inside, NSPoint* outside, NSRect rect)
 - (NSUInteger)length
 {
   return length;
+}
+
+- (NSPoint)firstPoint
+{
+  return points[0];
+}
+
+- (NSPoint)lastPoint
+{
+  return points[length - 1];
+}
+
+- (BOOL)isCyclic
+{
+  return NSEqualPoints (points[0], points[length - 1]);
 }
 
 - (NSArray *)clipToRect:(NSRect)bounds

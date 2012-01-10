@@ -20,5 +20,9 @@
 - (NSPoint *)points;
 - (NSUInteger)length;
 
+- (NSPoint)firstPoint;
+- (NSPoint)lastPoint;
+- (BOOL)isCyclic;
+
 - (NSArray *)clipToRect:(NSRect)bounds;
 @end

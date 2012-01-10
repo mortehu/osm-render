@@ -1,6 +1,6 @@
 bin_PROGRAMS = osm
 
-AM_OBJCFLAGS = -Wall -g -O1 `pkg-config cairo --cflags` $(GNUSTEP_OBJCFLAGS)
+AM_OBJCFLAGS = -Wall -g `pkg-config cairo --cflags` $(GNUSTEP_OBJCFLAGS)
 
 osm_SOURCES = \
   array.c array.h \

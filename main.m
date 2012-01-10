@@ -22,9 +22,166 @@ static double lonScale, lonOffset;
 static double latScale, latOffset;
 
 double
-ClockwiseBoxDistance (NSPoint from, NSPoint to, NSRect bounds)
+ClockwiseBoxPosition (NSPoint to, NSRect bounds)
 {
-  return 0.0;
+  double result;
+
+  if (to.y == NSMinY (bounds))
+    return to.x - NSMinX (bounds);
+
+  result = bounds.size.width;
+
+  if (to.x == NSMaxX (bounds))
+    return result + to.y - NSMinY (bounds);
+
+  result += bounds.size.height;
+
+  if (to.y == NSMaxY (bounds))
+    return result + NSMaxX (bounds) - to.x;
+
+  assert (to.x == NSMinX (bounds));
+
+  result += bounds.size.width;
+
+  return result + NSMaxY (bounds) - to.y;
+}
+
+void
+ConnectClockwise (SWPath *path, NSPoint from, NSPoint to, NSRect bounds)
+{
+  unsigned int i, fromEdge, toEdge;
+
+  fromEdge = (from.y == NSMinY (bounds)) ? 0
+           : (from.x == NSMaxX (bounds)) ? 1
+           : (from.y == NSMaxY (bounds)) ? 2
+                                         : 3;
+
+  toEdge = (to.y == NSMinY (bounds)) ? 0
+         : (to.x == NSMaxX (bounds)) ? 1
+         : (to.y == NSMaxY (bounds)) ? 2
+                                     : 3;
+
+  for (i = fromEdge; i != toEdge; i = (i + 1) & 3)
+    {
+      switch (i)
+        {
+        case 0: [path addPoint:NSMakePoint (NSMaxX (bounds), NSMinY (bounds))]; break;
+        case 1: [path addPoint:NSMakePoint (NSMaxX (bounds), NSMaxY (bounds))]; break;
+        case 2: [path addPoint:NSMakePoint (NSMinX (bounds), NSMaxY (bounds))]; break;
+        case 3: [path addPoint:NSMakePoint (NSMinX (bounds), NSMinY (bounds))]; break;
+        }
+    }
+}
+
+struct CoastPathDescriptor
+{
+  SWPath *path;
+  double startAngle;
+  double endAngle;
+};
+
+void
+ConnectEdgePaths (NSMutableArray *paths, NSRect bounds)
+{
+  struct CoastPathDescriptor *edgePaths;
+  NSMutableIndexSet *discardedPaths;
+  NSUInteger i = 0, j, count;
+  double circumference;
+  SWPath *path;
+
+  count = [paths count];
+
+  edgePaths = calloc (count, sizeof (*edgePaths));
+
+  for (path in paths)
+    {
+      if (![path isCyclic])
+        {
+          edgePaths[i].startAngle = ClockwiseBoxPosition (path.firstPoint, bounds);
+          edgePaths[i].endAngle = ClockwiseBoxPosition (path.lastPoint, bounds);
+        }
+
+      edgePaths[i].path = path;
+      i++;
+    }
+
+  circumference = (bounds.size.width + bounds.size.height) * 2.0;
+  discardedPaths = [NSMutableIndexSet indexSet];
+
+  for (i = 0; i < count; )
+    {
+      SWPath *path;
+      NSUInteger bestIndex;
+      double bestScore = circumference;
+
+      if ([discardedPaths containsIndex:i])
+        {
+          i++;
+
+          continue;
+        }
+
+      path = edgePaths[i].path;
+
+      if ([path isCyclic])
+        {
+          i++;
+
+          continue;
+        }
+
+      bestIndex = i;
+
+      for (j = 0; j < count; ++j)
+        {
+          double score;
+
+          if ([discardedPaths containsIndex:j])
+            continue;
+
+          score = edgePaths[j].startAngle - edgePaths[i].endAngle;
+
+          if (score < 0.0)
+            score += circumference;
+
+          if (score < bestScore)
+            {
+              bestIndex = j;
+              bestScore = score;
+            }
+        }
+
+      if (bestScore < circumference)
+        {
+          NSPoint from, to;
+
+          from = edgePaths[i].path.lastPoint;
+          to = edgePaths[bestIndex].path.firstPoint;
+
+          if ((from.x != to.x && from.y != to.y)
+              || edgePaths[i].endAngle >= edgePaths[bestIndex].startAngle)
+            {
+              ConnectClockwise (edgePaths[i].path, from, to, bounds);
+            }
+
+          if (bestIndex == i)
+            [path addPoint:path.firstPoint];
+          else
+            {
+              [path addPointsFromPath:edgePaths[bestIndex].path];
+
+              edgePaths[i].endAngle = edgePaths[bestIndex].endAngle;
+
+              [discardedPaths addIndex:bestIndex];
+            }
+        }
+      else
+        NSLog (@"Drats!");
+    }
+
+  [paths removeObjectsAtIndexes:discardedPaths];
+
+  free (edgePaths);
 }
 
 void
@@ -33,8 +190,12 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
   SWPath *pathA, *pathB;
   NSMutableIndexSet *discardedPaths;
   NSUInteger i, j, count;
+  double minX, minY, maxX, maxY;
 
-  NSLog (@"Before: %lu", [paths count]);
+  minX = NSMinX (bounds);
+  minY = NSMinY (bounds);
+  maxX = NSMaxX (bounds);
+  maxY = NSMaxY (bounds);
 
   discardedPaths = [NSMutableIndexSet indexSet];
 
@@ -80,35 +241,18 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
       if (NSEqualPoints (begin, end))
         continue;
 
-      if ((begin.x > bounds.origin.x && begin.y > bounds.origin.y
-           && begin.x < bounds.origin.x + bounds.size.width
-           && begin.y < bounds.origin.y + bounds.size.height)
-          || (end.x > bounds.origin.x && end.y > bounds.origin.y
-              && end.x < bounds.origin.x + bounds.size.width
-              && end.y < bounds.origin.y + bounds.size.height))
+      if ((begin.x > minX && begin.y > minY
+           && begin.x < maxX && begin.y < maxY)
+          || (end.x > minX && end.y > minY
+              && end.x < maxX && end.y < maxY))
         {
           [discardedPaths addIndex:i];
         }
     }
 
   [paths removeObjectsAtIndexes:discardedPaths];
-  count = [paths count];
 
-  for (i = 0; i < count; ++i)
-    {
-      pathA = [paths objectAtIndex:i];
-
-      if (NSEqualPoints (pathA.points[0], pathA.points[pathA.length - 1]))
-        {
-          NSLog (@"Hepp");
-
-          continue;
-        }
-
-      NSLog (@"%.2f %.2f   %.2f %.2f",
-             pathA.points[0].x, pathA.points[0].y,
-             pathA.points[1].x, pathA.points[1].y);
-    }
+  ConnectEdgePaths (paths, bounds);
 }
 
 void
@@ -165,51 +309,14 @@ osm_paint (void)
 
   for (path in coastPaths)
     {
+      if (![path isCyclic])
+        continue;
+
       [cairo addPath:path];
       [cairo setColor:0xffafbfdd ^ (rand () & 0xffffff)];
       [cairo setLineWidth:2.0f];
       [cairo stroke];
     }
-#if 0
-      if (node_refs[way->first_node] == node_refs[way->first_node + way->node_count - 1])
-        {
-          cairo_move_to (cr,
-                         imageWidth / 2 + (nodes[node_refs[way->first_node]].lon + lonOffset) * lonScale,
-                         imageHeight / 2 - (nodes[node_refs[way->first_node]].lat + latOffset) * latScale);
-
-          for (i = 1; i < way->node_count; ++i)
-            {
-              cairo_line_to (cr,
-                             imageWidth / 2 + (nodes[node_refs[way->first_node + i]].lon + lonOffset) * lonScale,
-                             imageHeight / 2 - (nodes[node_refs[way->first_node + i]].lat + latOffset) * latScale);
-            }
-
-          cairo_close_path (cr);
-          cairo_set_source_rgb (cr, 0xaf / 255.0f, 0xbf / 255.0f, 0xdd / 255.0f);
-          cairo_fill_preserve (cr);
-          /*
-          cairo_set_line_width (cr, 2.0f);
-          cairo_stroke (cr);
-          */
-        }
-      else
-        {
-          cairo_move_to (cr,
-                         imageWidth / 2 + (nodes[node_refs[way->first_node]].lon + lonOffset) * lonScale,
-                         imageHeight / 2 - (nodes[node_refs[way->first_node]].lat + latOffset) * latScale);
-
-          for (i = 1; i < way->node_count; ++i)
-            {
-              cairo_line_to (cr,
-                             imageWidth / 2 + (nodes[node_refs[way->first_node + i]].lon + lonOffset) * lonScale,
-                             imageHeight / 2 - (nodes[node_refs[way->first_node + i]].lat + latOffset) * latScale);
-            }
-
-          cairo_set_source_rgb (cr, 1.0f, 0.0f, 0.0f);
-          cairo_set_line_width (cr, 2.0f);
-          cairo_stroke (cr);
-        }
-#endif
 
   [cairo writeToPNG:@"output.png"];
   [cairo release];
