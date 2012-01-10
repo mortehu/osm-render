@@ -269,7 +269,11 @@ osm_paint (void)
   cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
                                  format:CAIRO_FORMAT_RGB24];
 
-  bounds = NSMakeRect (342, 342, 342, 342);
+  bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
+
+  [cairo setColor:0xffefebe2];
+  [cairo addRectangle:bounds];
+  [cairo fill];
 
   for (j = 0; j < way_count; ++j)
     {
@@ -313,9 +317,40 @@ osm_paint (void)
         continue;
 
       [cairo addPath:path];
-      [cairo setColor:0xffafbfdd ^ (rand () & 0xffffff)];
-      [cairo setLineWidth:2.0f];
-      [cairo stroke];
+    }
+
+  [cairo setColor:0xffafbfdd];
+  [cairo fill];
+
+  for (j = 0; j < way_count; ++j)
+    {
+      const struct osm_way *way;
+      size_t i;
+
+      NSPoint *points;
+
+      way = &ways[j];
+
+      if (way->natural != OSM_NATURAL_WATER)
+        continue;
+
+      points = calloc (way->node_count, sizeof (*points));
+
+      for (i = 0; i < way->node_count; ++i)
+        {
+          points[i].x = imageWidth / 2 + (nodes[node_refs[way->first_node + i]].lon + lonOffset) * lonScale;
+          points[i].y = imageHeight / 2 - (nodes[node_refs[way->first_node + i]].lat + latOffset) * latScale;
+        }
+
+      path = [[SWPath alloc] initWithPointsNoCopy:points
+                                           length:way->node_count];
+
+
+      [cairo addPath:path];
+      [cairo fill];
+
+      [path release];
+
     }
 
   [cairo writeToPNG:@"output.png"];
@@ -350,9 +385,6 @@ main (int argc, char **argv)
 
   latScale = imageHeight / (latMax - latMin);
   lonScale = imageWidth / (lonMax - lonMin);
-
-  latScale *= 0.3;
-  lonScale *= 0.3;
 
   osm_parse (fd);
 

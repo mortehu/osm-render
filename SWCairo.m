@@ -38,8 +38,18 @@
 
   cairo_move_to (cairo, points[0].x, points[0].y);
 
-  for (i = 1; i < length; ++i)
+  for (i = 1; i + 1 < length; ++i)
     cairo_line_to (cairo, points[i].x, points[i].y);
+
+  if (NSEqualPoints (points[0], points[i]))
+    cairo_close_path (cairo);
+  else
+    cairo_line_to (cairo, points[i].x, points[i].y);
+}
+
+- (void)addRectangle:(NSRect)rect
+{
+  cairo_rectangle (cairo, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 }
 
 - (void)setColor:(uint32_t)argb
@@ -60,6 +70,11 @@
 - (void)stroke
 {
   cairo_stroke (cairo);
+}
+
+- (void)fill
+{
+  cairo_fill (cairo);
 }
 
 - (void)writeToPNG:(NSString *)path
