@@ -81,7 +81,7 @@ osm_start_element (void *user_data, const XML_Char *name,
               assert (lat >= -90.0);
               assert (lat <= 90.0);
 
-              new_node.lat = lat / 90.0 * 0x7fffffff;
+              new_node.lat = lat;
             }
           else if (!strcmp (attr[0], "lon"))
             {
@@ -92,7 +92,7 @@ osm_start_element (void *user_data, const XML_Char *name,
               assert (lon >= -180.0);
               assert (lon <= 180.0);
 
-              new_node.lon = lon / 180.0 * 0x7fffffff;
+              new_node.lon = lon;
             }
         }
 

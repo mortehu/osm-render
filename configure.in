@@ -2,8 +2,13 @@ AC_INIT(osm,0.1)
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 AC_PROG_CC
-AC_PROG_CXX
+AC_PROG_OBJC
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
+
+GNUSTEP_OBJCFLAGS="-DGNUSTEP -DGNUSTEP_BASE_LIBRARY=1 -DGNU_RUNTIME=1 -DGNUSTEP_BASE_LIBRARY=1 -DGSWARN -DGSDIAGNOSE -fno-strict-aliasing -fexceptions -fobjc-exceptions -D_NATIVE_OBJC_EXCEPTIONS -fgnu-runtime -fconstant-string-class=NSConstantString -I/usr/include/GNUstep"
+GNUSTEP_LIBS="-fexceptions -fgnu-runtime -lgnustep-base -lobjc"
+AC_SUBST(GNUSTEP_OBJCFLAGS)
+AC_SUBST(GNUSTEP_LIBS)
 
 AC_OUTPUT(Makefile)

@@ -7,8 +7,7 @@
 struct osm_node
 {
   uint64_t id;
-  int32_t lat;
-  int32_t lon;
+  double lat, lon;
 };
 
 #define OSM_WAY_BUILDING           0x0001
