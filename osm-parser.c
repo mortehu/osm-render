@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <err.h>
 
@@ -346,7 +347,7 @@ osm_parse (int fd)
   XML_SetCharacterDataHandler (xml_parser, osm_character_data);
   XML_SetStartNamespaceDeclHandler (xml_parser, osm_start_namespace);
 
-  while (0 < (ret = read (0, buffer, sizeof (buffer))))
+  while (0 < (ret = read (fd, buffer, sizeof (buffer))))
     {
       if (!XML_Parse (xml_parser, buffer, ret, 0))
         {

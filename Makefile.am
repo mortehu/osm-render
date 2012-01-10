@@ -1,6 +1,6 @@
 bin_PROGRAMS = osm
 
-AM_CFLAGS = -pthread -Wall -g -O1
+AM_CFLAGS = -pthread -Wall -g -O1 `pkg-config cairo --cflags`
 
 osm_SOURCES =     \
   array.c array.h \
@@ -13,5 +13,4 @@ osm_SOURCES =     \
   osm-tesselate.c \
   string-pool.c
 
-osm_LDFLAGS = -lexpat -lGL -lGLU -lGLEW -lX11 -lXi -lm -lpng
-osm_LDADD = /usr/local/lib/libcelsius.a
+osm_LDFLAGS = -lexpat -lm -lGLU `pkg-config cairo --libs`
