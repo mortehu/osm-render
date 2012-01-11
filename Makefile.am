@@ -1,6 +1,7 @@
-bin_PROGRAMS = osm
+bin_PROGRAMS = osm osm-convert
 
 AM_OBJCFLAGS = -Wall -g `pkg-config cairo --cflags` $(GNUSTEP_OBJCFLAGS)
+AM_CFLAGS = -Wall -g
 
 osm_SOURCES = \
   array.c array.h \
@@ -11,6 +12,9 @@ osm_SOURCES = \
   osm-tags.c \
   string-pool.c \
   SWPath.m \
-  SWCairo.m
+  SWCairo.m \
+  SWXMLParser.m
+osm_LDFLAGS = -lexpat -lm `pkg-config cairo --libs` $(GNUSTEP_LIBS)
 
-osm_LDFLAGS = -lexpat -lm -lGLU `pkg-config cairo --libs` $(GNUSTEP_LIBS)
+osm_convert_SOURCES = osm-convert.m SWXMLParser.m
+osm_convert_LDFLAGS = -lexpat $(GNUSTEP_LIBS)

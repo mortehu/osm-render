@@ -1,17 +1,18 @@
-#include <assert.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
+#import <assert.h>
+#import <fcntl.h>
+#import <limits.h>
+#import <stdint.h>
+#import <stdio.h>
+#import <stdlib.h>
+#import <string.h>
+#import <sys/mman.h>
+#import <unistd.h>
 
-#include <err.h>
-#include <sysexits.h>
+#import <err.h>
+#import <sysexits.h>
 
-#include <expat.h>
+#import <Swanston/SWXMLParser.h>
+#import <expat.h>
 
 static FILE *nodes, *ways, *tags, *nodeRefs;
 
@@ -26,19 +27,112 @@ struct way_data
   uint64_t tagStart;
 };
 
-int inWay = 0;
-
 unsigned long long nextNodeID = 0;
 unsigned long long nextWayID = 0;
 unsigned long long nextNodeRefIndex;
 unsigned long long nextTagOffset;
 
-static void XMLCALL
-osm_start_element (void *user_data, const XML_Char *name,
-                    const XML_Char **atts)
+static FILE *
+try_create (const char *path)
 {
-  const XML_Char **attr;
+  FILE *result;
 
+  if (!(result = fopen (path, "w")))
+    err (EXIT_FAILURE, "Failed to create '%s'", path);
+
+  return result;
+}
+
+enum OSMPlanetParserMode
+{
+  OSMPlanetParserUnknown,
+  OSMPlanetParserRoot,
+  OSMPlanetParserNode,
+  OSMPlanetParserWay,
+  OSMPlanetParserWayTag,
+  OSMPlanetParserWayNodeRef
+};
+
+typedef enum OSMPlanetParserMode OSMPlanetParserMode;
+
+@interface OSMPlanetParser : NSObject <SWXMLParserDelegate>
+{
+  OSMPlanetParserMode stack[16];
+  unsigned int stackDepth;
+}
+@end
+
+@implementation OSMPlanetParser
+- (void)        xmlParser:(SWXMLParser *)parser
+  didStartElementWithName:(const char *)name
+                   length:(unsigned int)length
+{
+  OSMPlanetParserMode newMode = OSMPlanetParserUnknown;
+
+  if (!stackDepth)
+    newMode = OSMPlanetParserRoot;
+  else
+    {
+      switch (stack[stackDepth - 1])
+        {
+        case OSMPlanetParserRoot:
+
+          switch (length)
+            {
+            case 3:
+
+              if (!memcmp (name, "way", 3))
+                newMode = OSMPlanetParserWay;
+
+              break;
+
+            case 4:
+
+              if (!memcmp (name, "node", 4))
+                {
+                  exit (0);
+                  newMode = OSMPlanetParserNode;
+                }
+            }
+
+          break;
+
+        case OSMPlanetParserWay:
+
+          switch (length)
+            {
+            case 2:
+
+              if (!memcmp (name, "nd", 2))
+                newMode = OSMPlanetParserWayNodeRef;
+
+              break;
+
+            case 3:
+
+              if (!memcmp (name, "tag", 3))
+                newMode = OSMPlanetParserWayTag;
+
+              break;
+            }
+
+          break;
+
+        default:
+
+          ;
+        }
+    }
+
+  stack[stackDepth++] = newMode;
+}
+
+- (void)xmlParserDidLeaveElement:(SWXMLParser *)parser
+{
+  assert (stackDepth);
+
+  stackDepth--;
+#if 0
   switch (name[0])
     {
     case 'n':
@@ -177,33 +271,63 @@ osm_start_element (void *user_data, const XML_Char *name,
 
       break;
     }
+#endif
 }
 
-static void XMLCALL
-osm_end_element (void *user_data, const XML_Char *name)
+- (void)       xmlParser:(SWXMLParser *)parser
+  foundAttributeWithName:(const char *)name
+              nameLength:(unsigned int)nameLength
+                   value:(const char *)value
+             valueLength:(unsigned int)valueLength
 {
-  if (inWay && !strcmp (name, "way"))
-    inWay = 0;
+  switch (stack[stackDepth - 1])
+    {
+    case OSMPlanetParserNode:
+
+      fprintf (stderr, "Node attribute: %.*s -> %.*s\n",
+               (int) nameLength, name,
+               (int) valueLength, value);
+
+      break;
+
+    case OSMPlanetParserWay:
+
+      fprintf (stderr, "Way attribute: %.*s -> %.*s\n",
+               (int) nameLength, name,
+               (int) valueLength, value);
+
+      break;
+
+    case OSMPlanetParserWayTag:
+
+      fprintf (stderr, "Way tag attribute: %.*s -> %.*s\n",
+               (int) nameLength, name,
+               (int) valueLength, value);
+
+      break;
+
+    case OSMPlanetParserWayNodeRef:
+
+      fprintf (stderr, "Way node ref attribute: %.*s -> %.*s\n",
+               (int) nameLength, name,
+               (int) valueLength, value);
+
+      break;
+
+    default:
+
+      ;
+    }
 }
-
-static FILE *
-try_create (const char *path)
-{
-  FILE *result;
-
-  if (!(result = fopen (path, "w")))
-    err (EXIT_FAILURE, "Failed to create '%s'", path);
-
-  return result;
-}
+@end
 
 int
 main (int argc, char **argv)
 {
-  XML_Parser xml_parser;
-  int ret, fd;
+/*  XML_Parser xml_parser;*/
+  int fd;
   void *buffer;
-  off_t size, offset = 0;
+  off_t size;
 
   if (argc != 2)
     errx (EX_USAGE, "Usage: %s <PLANET.OSM>", argv[0]);
@@ -220,11 +344,22 @@ main (int argc, char **argv)
 
   close (fd);
 
+  madvise (buffer, size, MADV_SEQUENTIAL);
+
   nodes = try_create ("planet/nodes");
   ways = try_create ("planet/ways");
   tags = try_create ("planet/tags");
   nodeRefs = try_create ("planet/nodeRefs");
 
+  SWXMLParser *xmlParser;
+  OSMPlanetParser *planetParser;
+
+  planetParser = [OSMPlanetParser new];
+  xmlParser = [[SWXMLParser alloc] initWithDelegate:planetParser];
+
+  [xmlParser parseBytes:buffer
+                 length:size];
+#if 0
   xml_parser = XML_ParserCreate ("utf-8");
 
   XML_SetUserData (xml_parser, 0);
@@ -251,6 +386,7 @@ main (int argc, char **argv)
 
       offset += amount;
     }
+#endif
 
   munmap (buffer, size);
 
