@@ -82,17 +82,27 @@ typedef enum OSMPlanetParserMode OSMPlanetParserMode;
             case 3:
 
               if (!memcmp (name, "way", 3))
-                newMode = OSMPlanetParserWay;
+                {
+                  newMode = OSMPlanetParserWay;
+
+                  struct
+                    {
+                      uint64_t nodeRefStart;
+                      uint64_t tagStart;
+                    } data;
+
+                  data.nodeRefStart = nextNodeRefIndex;
+                  data.tagStart = nextTagOffset;
+
+                  fwrite (&data, sizeof (data), 1, ways);
+                }
 
               break;
 
             case 4:
 
               if (!memcmp (name, "node", 4))
-                {
-                  exit (0);
-                  newMode = OSMPlanetParserNode;
-                }
+                newMode = OSMPlanetParserNode;
             }
 
           break;
@@ -132,146 +142,6 @@ typedef enum OSMPlanetParserMode OSMPlanetParserMode;
   assert (stackDepth);
 
   stackDepth--;
-#if 0
-  switch (name[0])
-    {
-    case 'n':
-
-      if (!strcmp (name + 1, "ode"))
-        {
-          unsigned long long id = 0;
-          struct node_data data;
-
-          for (attr = atts; *attr; attr += 2)
-            {
-              if (!strcmp (attr[0], "id"))
-                id = strtoll (attr[1], 0, 10);
-              else if (!strcmp (attr[0], "lat"))
-                {
-                  data.lat = strtod (attr[1], 0);
-
-                  assert (data.lat >= -90.0);
-                  assert (data.lat <= 90.0);
-                }
-              else if (!strcmp (attr[0], "lon"))
-                {
-                  data.lon = strtod (attr[1], 0);
-
-                  assert (data.lon >= -180.0);
-                  assert (data.lon <= 180.0);
-                }
-            }
-
-          if (id != nextNodeID)
-            {
-              if (id < nextNodeID)
-                {
-                  errx (EXIT_FAILURE, "Node ID not monotonically increasing after %llu.  Next was %llu",
-                        nextNodeID, id);
-                }
-
-              fseek (nodes, (id - nextNodeID) * sizeof (data), SEEK_CUR);
-
-              nextNodeID = id + 1;
-            }
-          else
-            ++nextNodeID;
-
-          fwrite (&data, sizeof (data), 1, nodes);
-        }
-      else if (!strcmp (name, "nd"))
-        {
-          if (inWay)
-            {
-              uint64_t ref = (uint64_t) -1;
-
-              for (attr = atts; *attr; attr += 2)
-                {
-                  if (!strcmp (attr[0], "ref"))
-                    ref = strtoll (attr[1], 0, 10);
-                }
-
-              if (ref != (uint64_t) -1)
-                {
-                  fwrite (&ref, sizeof (ref), 1, nodeRefs);
-
-                  ++nextNodeRefIndex;
-                }
-            }
-        }
-
-      break;
-
-    case 't':
-
-      if (!strcmp (name, "tag"))
-        {
-          if (inWay)
-            {
-              const char *k = 0, *v = 0;
-              size_t length;
-
-              for (attr = atts; *attr; attr += 2)
-                {
-                  if (!strcmp (attr[0], "k"))
-                    k = attr[1];
-                  else if (!strcmp (attr[0], "v"))
-                    v = attr[1];
-                }
-
-              assert (k && v);
-
-              length = strlen (k) + 1;
-              fwrite (k, 1, length, tags);
-              nextTagOffset += length;
-
-              length = strlen (v) + 1;
-              fwrite (v, 1, length, tags);
-              nextTagOffset += length;
-            }
-        }
-
-      break;
-
-    case 'w':
-
-      if (!strcmp (name, "way"))
-        {
-          unsigned long long id = 0;
-          struct way_data data;
-
-          for (attr = atts; *attr; attr += 2)
-            {
-              if (!strcmp (attr[0], "id"))
-                id = strtoll (attr[1], 0, 10);
-            }
-
-          if (id != nextWayID)
-            {
-              if (id < nextWayID)
-                {
-                  errx (EXIT_FAILURE, "Way ID not monotonically increasing after %llu.  Next was %llu",
-                        nextWayID, id);
-                }
-
-              fseek (nodes, (id - nextWayID) * sizeof (data), SEEK_CUR);
-
-              nextWayID = id + 1;
-            }
-          else
-            ++nextWayID;
-
-          data.nodeRefStart = nextNodeRefIndex;
-          data.tagStart = nextTagOffset;
-
-          fwrite (&data, sizeof (data), 1, ways);
-
-          inWay = 1;
-        }
-
-      break;
-    }
-#endif
 }
 
 - (void)       xmlParser:(SWXMLParser *)parser
@@ -284,33 +154,77 @@ typedef enum OSMPlanetParserMode OSMPlanetParserMode;
     {
     case OSMPlanetParserNode:
 
-      fprintf (stderr, "Node attribute: %.*s -> %.*s\n",
-               (int) nameLength, name,
-               (int) valueLength, value);
+      switch (nameLength)
+        {
+        case 2:
 
-      break;
+          if (!memcmp (name, "id", 2))
+            {
+              unsigned long long newID = 0;
 
-    case OSMPlanetParserWay:
+              while (valueLength--)
+                newID = newID * 10 + (*value++ - '0');
 
-      fprintf (stderr, "Way attribute: %.*s -> %.*s\n",
-               (int) nameLength, name,
-               (int) valueLength, value);
+              if (newID != nextNodeID)
+                {
+                  if (newID < nextNodeID)
+                    {
+                      errx (EXIT_FAILURE, "Node ID not monotonically increasing after %llu.  Next was %llu",
+                            nextNodeID, newID);
+                    }
+
+                  fseek (nodes, (newID - nextNodeID) * 2 * sizeof (double), SEEK_CUR);
+
+                  nextNodeID = newID + 1;
+                }
+              else
+                nextNodeID++;
+            }
+
+        case 3:
+
+          if (!memcmp (name, "lat", 3)
+              || !memcmp (name, "lon", 3))
+            {
+              char buf[16];
+              double v;
+
+              memcpy (buf, value, valueLength);
+              buf[valueLength] = 0 ;
+
+              v = strtod (value, 0);
+
+              fwrite (&v, sizeof (v), 1, nodes);
+            }
+
+          break;
+        }
 
       break;
 
     case OSMPlanetParserWayTag:
 
-      fprintf (stderr, "Way tag attribute: %.*s -> %.*s\n",
-               (int) nameLength, name,
-               (int) valueLength, value);
+      if (nameLength == 1 && (*name == 'k' || *name == 'v'))
+        {
+          fwrite (value, 1, valueLength + 1, tags);
+          nextTagOffset += valueLength + 1;
+        }
 
       break;
 
     case OSMPlanetParserWayNodeRef:
 
-      fprintf (stderr, "Way node ref attribute: %.*s -> %.*s\n",
-               (int) nameLength, name,
-               (int) valueLength, value);
+      if (nameLength == 3 && !memcmp (name, "ref", 3))
+        {
+          uint64_t ref = 0;
+
+          while (valueLength--)
+            ref = ref * 10 + (*value++ - '0');
+
+          fwrite (&ref, sizeof (ref), 1, nodeRefs);
+
+          nextNodeRefIndex++;
+        }
 
       break;
 
