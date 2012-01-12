@@ -94,7 +94,7 @@ int
 osm_node_find (uint64_t id, const struct osm_node *nodes, size_t count);
 
 void
-osm_parse (int fd);
+osm_parse (double latMin, double lonMin, double latMax, double lonMax);
 
 /***********************************************************************/
 

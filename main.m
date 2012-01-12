@@ -12,8 +12,10 @@
 
 #import <cairo/cairo.h>
 
+#import <MapData.h>
+/*
 #import "osm.h"
-
+*/
 static double lonMin, lonMax;
 static double latMin, latMax;
 static unsigned int imageWidth = 1024, imageHeight = 1024;
@@ -275,6 +277,7 @@ osm_paint (void)
   [cairo addRectangle:bounds];
   [cairo fill];
 
+#if 0
   for (j = 0; j < way_count; ++j)
     {
       NSPoint *points;
@@ -308,6 +311,7 @@ osm_paint (void)
       [path release];
 
     }
+#endif
 
   MergeCoastPaths (coastPaths, bounds);
 
@@ -322,6 +326,7 @@ osm_paint (void)
   [cairo setColor:0xffafbfdd];
   [cairo fill];
 
+#if 0
   for (j = 0; j < way_count; ++j)
     {
       const struct osm_way *way;
@@ -352,6 +357,7 @@ osm_paint (void)
       [path release];
 
     }
+#endif
 
   [cairo writeToPNG:@"output.png"];
   [cairo release];
@@ -361,12 +367,10 @@ int
 main (int argc, char **argv)
 {
   NSAutoreleasePool *pool;
-  int fd;
+  MapData *mapData;
+  NSArray *ways;
 
   pool = [[NSAutoreleasePool alloc] init];
-
-  if (-1 == (fd = open ("new-york.osm", O_RDONLY)))
-    err (EXIT_FAILURE, "Failed to open 'new-york.osm' for reading");
 
 #if 1
   lonMin = -74.0475082397461;
@@ -386,9 +390,12 @@ main (int argc, char **argv)
   latScale = imageHeight / (latMax - latMin);
   lonScale = imageWidth / (lonMax - lonMin);
 
-  osm_parse (fd);
+  if (!(mapData = [[MapData alloc] init]))
+    errx (EXIT_FAILURE, "Failed to load map data");
 
-  close (fd);
+  ways = [mapData waysInRect:NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin)];
+
+  NSLog (@"Got %lu ways", [ways count]);
 
   osm_paint ();
 

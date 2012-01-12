@@ -7,10 +7,14 @@
 
 #include <err.h>
 
-#include <expat.h>
+#import <Foundation/NSArray.h>
+#import <Foundation/NSData.h>
+#import <Foundation/NSDictionary.h>
+#import <Foundation/NSIndexSet.h>
+#import <Swanston/SWPath.h>
+#import <MapData.h>
 
-#include "osm.h"
-
+#if 0
 #define OSM_MAX_NODES     1000000
 #define OSM_MAX_NODE_REFS 1000000
 #define OSM_MAX_WAYS       100000
@@ -334,26 +338,167 @@ osm_start_namespace (void *user_data, const XML_Char *prefix, const XML_Char *ur
 }
 
 void
-osm_parse (int fd)
+osm_parse (double latMin, double lonMin, double latMax, double lonMax)
 {
-  XML_Parser xml_parser;
-  char buffer[4096];
-  int ret;
-
-  xml_parser = XML_ParserCreateNS ("utf-8", '|');
-
-  XML_SetUserData (xml_parser, 0);
-  XML_SetElementHandler (xml_parser, osm_start_element, osm_end_element);
-  XML_SetCharacterDataHandler (xml_parser, osm_character_data);
-  XML_SetStartNamespaceDeclHandler (xml_parser, osm_start_namespace);
-
-  while (0 < (ret = read (fd, buffer, sizeof (buffer))))
-    {
-      if (!XML_Parse (xml_parser, buffer, ret, 0))
-        {
-          ret = XML_GetErrorCode (xml_parser);
-
-          osm_xml_error (ret);
-        }
-    }
 }
+#endif
+
+struct MapDataNode
+{
+  double latitude, longitude;
+};
+
+struct MapDataWay
+{
+  uint64_t nodeRefStart;
+  uint64_t tagStart;
+};
+
+@implementation MapData
+- (id)init
+{
+  if (!(self = [super init]))
+    return nil;
+
+  if (!(nodeData = [[NSData dataWithContentsOfMappedFile:@"planet/nodes"] retain])
+      || !(nodeRefData = [[NSData dataWithContentsOfMappedFile:@"planet/nodeRefs"] retain])
+      || !(tagData = [[NSData dataWithContentsOfMappedFile:@"planet/tags"] retain])
+      || !(wayData = [[NSData dataWithContentsOfMappedFile:@"planet/ways"] retain]))
+    {
+      [self release];
+
+      return nil;
+    }
+
+  return self;
+}
+
+- (void)dealloc
+{
+  [wayData release];
+  [tagData release];
+  [nodeRefData release];
+  [nodeData release];
+  [super dealloc];
+}
+
+- (NSArray *)waysInRect:(NSRect)rect
+{
+  NSMutableArray *result;
+  NSMutableIndexSet *matchingNodes = nil;
+  NSUInteger i, j;
+  double minLat, minLon, maxLat, maxLon;
+
+  const struct MapDataNode *nodes;
+  NSUInteger nodeCount;
+
+  const struct MapDataWay *ways;
+  NSUInteger wayCount;
+
+  const uint64_t *nodeRefs;
+  NSUInteger nodeRefCount;
+
+  nodes = [nodeData bytes];
+  nodeCount = [nodeData length] / sizeof (*nodes);
+
+  ways = [wayData bytes];
+  wayCount = [wayData length] / sizeof (*ways);
+
+  nodeRefs = [nodeRefData bytes];
+  nodeRefCount = [nodeRefData length] / sizeof (*nodeRefs);
+
+  minLon = NSMinX (rect);
+  maxLon = NSMaxX (rect);
+  minLat = NSMinY (rect);
+  maxLat = NSMaxY (rect);
+
+  NSLog (@"Bounds: %.2f %.2f %.2f %.2f", minLat, minLon, maxLat, maxLon);
+
+  result = [[[NSMutableArray alloc] init] autorelease];
+
+  @try
+    {
+      unsigned int lastProgress = (unsigned int) -1, progress;
+      matchingNodes = [NSMutableIndexSet new];
+
+      for (i = 0; i < nodeCount; ++i)
+        {
+          if (!(i & 0xff)
+              && lastProgress != (progress = i * 1000 / nodeCount))
+            {
+              fprintf (stderr, "\rNodes: %.1f%%", progress / 10.0);
+              lastProgress = progress;
+            }
+
+          if (nodes[i].latitude >= minLat && nodes[i].latitude <= maxLat
+              && nodes[i].longitude >= minLon && nodes[i].longitude <= maxLon)
+            {
+              [matchingNodes addIndex:i];
+            }
+        }
+
+      fprintf (stderr, "\n");
+
+      NSLog (@"Found %lu nodes", [matchingNodes count]);
+
+      for (i = 0; i < wayCount; ++i)
+        {
+          NSUInteger maxNodeRef;
+
+          if (!(i & 0xff)
+              && lastProgress != (progress = i * 1000 / wayCount))
+            {
+              fprintf (stderr, "\rWays: %.1f%%", progress / 10.0);
+              lastProgress = progress;
+            }
+
+          maxNodeRef = (i + 1 < wayCount) ? ways[i + 1].nodeRefStart : nodeRefCount;
+
+          for (j = ways[i].nodeRefStart; j < maxNodeRef; ++j)
+            {
+              if ([matchingNodes containsIndex:nodeRefs[j]])
+                break;
+            }
+
+          if (j != maxNodeRef)
+            {
+              MapWay *way;
+              SWPath *path;
+              NSPoint *pathPoints;
+              NSUInteger pathLength;
+
+              NSMutableDictionary *tags = nil;
+
+              pathLength = (maxNodeRef - ways[i].nodeRefStart);
+              pathPoints = malloc (pathLength * sizeof (*pathPoints));
+
+              for (j = 0; j < pathLength; ++j)
+                {
+                  pathPoints[j].x = nodes[nodeRefs[j + ways[i].nodeRefStart]].longitude;
+                  pathPoints[j].y = nodes[nodeRefs[j + ways[i].nodeRefStart]].latitude;
+                }
+
+              path = [[SWPath alloc] initWithPointsNoCopy:pathPoints
+                                                   length:pathLength];
+
+              way = [[MapWay alloc] initWithPath:path
+                                            tags:tags];
+              [path release];
+
+              [result addObject:way];
+              [way release];
+            }
+        }
+
+      fprintf (stderr, "\n");
+
+      NSLog (@"Found %lu ways", [result count]);
+    }
+  @finally
+    {
+      [matchingNodes release];
+    }
+
+  return result;
+}
+@end

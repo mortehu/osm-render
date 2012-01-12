@@ -37,7 +37,7 @@ try_create (const char *path)
 {
   FILE *result;
 
-  if (!(result = fopen (path, "w")))
+  if (!(result = fopen (path, "wx")))
     err (EXIT_FAILURE, "Failed to create '%s'", path);
 
   return result;
@@ -206,7 +206,8 @@ typedef enum OSMPlanetParserMode OSMPlanetParserMode;
 
       if (nameLength == 1 && (*name == 'k' || *name == 'v'))
         {
-          fwrite (value, 1, valueLength + 1, tags);
+          fwrite (value, 1, valueLength, tags);
+          fputc (0, tags);
           nextTagOffset += valueLength + 1;
         }
 
@@ -238,10 +239,9 @@ typedef enum OSMPlanetParserMode OSMPlanetParserMode;
 int
 main (int argc, char **argv)
 {
-/*  XML_Parser xml_parser;*/
-  int fd;
   void *buffer;
   off_t size;
+  int fd;
 
   if (argc != 2)
     errx (EX_USAGE, "Usage: %s <PLANET.OSM>", argv[0]);
@@ -260,10 +260,10 @@ main (int argc, char **argv)
 
   madvise (buffer, size, MADV_SEQUENTIAL);
 
-  nodes = try_create ("planet/nodes");
-  ways = try_create ("planet/ways");
-  tags = try_create ("planet/tags");
-  nodeRefs = try_create ("planet/nodeRefs");
+  nodes = try_create ("planet/.nodes.new");
+  ways = try_create ("planet/.ways.new");
+  tags = try_create ("planet/.tags.new");
+  nodeRefs = try_create ("planet/.nodeRefs.new");
 
   SWXMLParser *xmlParser;
   OSMPlanetParser *planetParser;
@@ -273,36 +273,18 @@ main (int argc, char **argv)
 
   [xmlParser parseBytes:buffer
                  length:size];
-#if 0
-  xml_parser = XML_ParserCreate ("utf-8");
-
-  XML_SetUserData (xml_parser, 0);
-  XML_SetElementHandler (xml_parser, osm_start_element, osm_end_element);
-
-  while (offset < size)
-    {
-      int amount;
-
-      if (size - offset > INT_MAX / 2)
-        amount = INT_MAX / 2;
-      else
-        amount = (int) (size - offset);
-
-      fprintf (stderr, "At offset %llu, amount %d...\n", (unsigned long long) offset, amount);
-
-      if (!(ret = XML_Parse (xml_parser, (const char *) buffer + offset, amount, 0)))
-        {
-          errx (EXIT_FAILURE, "expat failed to parse 'planet.osm': offset=%llu length=%d error-string=%s",
-                (unsigned long long) offset,
-                amount,
-                XML_ErrorString (ret));
-        }
-
-      offset += amount;
-    }
-#endif
 
   munmap (buffer, size);
+
+  fsync (fileno (nodes));
+  fsync (fileno (ways));
+  fsync (fileno (tags));
+  fsync (fileno (nodeRefs));
+
+  rename ("planet/.nodes.new", "planet/nodes");
+  rename ("planet/.ways.new", "planet/ways");
+  rename ("planet/.tags.new", "planet/tags");
+  rename ("planet/.nodeRefs.new", "planet/nodeRefs");
 
   return EXIT_SUCCESS;
 }
