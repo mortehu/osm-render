@@ -1,18 +1,21 @@
 #import <Foundation/Foundation.h>
+#import <MapData.h>
 #import <Swanston/SWCairo.h>
+#import <Swanston/SWJSONStream.h>
 #import <Swanston/SWPath.h>
 
 #import <assert.h>
 #import <err.h>
 #import <fcntl.h>
+#import <getopt.h>
 #import <math.h>
 #import <stdio.h>
 #import <stdlib.h>
+#import <sysexits.h>
 #import <unistd.h>
 
 #import <cairo/cairo.h>
 
-#import <MapData.h>
 
 static double lonMin, lonMax;
 static double latMin, latMax;
@@ -174,6 +177,8 @@ ConnectEdgePaths (NSMutableArray *paths, NSRect bounds)
   free (edgePaths);
 }
 
+static NSMutableArray *poorPaths;
+
 void
 MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
 {
@@ -195,26 +200,44 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
 
   for (i = 0; i < count; ++i)
     {
+      BOOL wasUpdated;
+
       if ([discardedPaths containsIndex:i])
         continue;
 
       pathA = [paths objectAtIndex:i];
 
-      for (j = 0; j < count; ++j)
+      if (pathA.isCyclic)
+        continue;
+
+      do
         {
-          if (j == i || [discardedPaths containsIndex:j])
-            continue;
+          wasUpdated = NO;
 
-          pathB = [paths objectAtIndex:j];
-
-          if (NSEqualPoints (pathA.points[pathA.length - 1], pathB.points[0]))
+          for (j = 0; j < count; ++j)
             {
-              [pathA addPointsFromPath:pathB];
+              if (j == i || [discardedPaths containsIndex:j])
+                continue;
 
-              [discardedPaths addIndex:j];
+              pathB = [paths objectAtIndex:j];
+
+              if (pathB.isCyclic)
+                continue;
+
+              if (NSEqualPoints (pathA.lastPoint, pathB.firstPoint))
+                {
+                  [pathA addPointsFromPath:pathB];
+
+                  [discardedPaths addIndex:j];
+
+                  wasUpdated = YES;
+                }
             }
         }
+      while (wasUpdated);
     }
+
+  poorPaths = [[NSMutableArray alloc] init];
 
   [paths removeObjectsAtIndexes:discardedPaths];
   count = [paths count];
@@ -238,7 +261,37 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
           || (end.x > minX && end.y > minY
               && end.x < maxX && end.y < maxY))
         {
+          [poorPaths addObject:pathA];
+
           [discardedPaths addIndex:i];
+        }
+    }
+
+    {
+      for (i = 0; i < [poorPaths count]; ++i)
+        {
+          pathA = [poorPaths objectAtIndex:i];
+
+          for (j = 0; j < [poorPaths count]; ++j)
+            {
+              NSPoint a, b;
+              double distance;
+
+              if (j == i)
+                continue;
+
+              pathB = [poorPaths objectAtIndex:j];
+
+              a = pathA.lastPoint;
+              b = pathB.firstPoint;
+
+              if (NSEqualPoints (a, b))
+                NSLog (@"Exactly equal");
+
+              distance = (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
+
+              NSLog (@"Not exactly equal, but distance is: %g", sqrt (distance));
+            }
         }
     }
 
@@ -302,28 +355,175 @@ osm_paint (NSArray *ways)
       [cairo addPath:path];
     }
 
+  [cairo setColor:0xffafbfdd];
+  [cairo fill];
+
   /* Add ponds and such */
 
   for (way in ways)
     {
-      NSString *natural;
+      if (   [[way.tags objectForKey:@"waterway"] isEqualToString:@"riverbank"]
+          || [[way.tags objectForKey:@"waterway"] isEqualToString:@"dock"]
+          || [[way.tags objectForKey:@"natural"] isEqualToString:@"water"]
+          || [[way.tags objectForKey:@"natural"] isEqualToString:@"pond"]
+          || [[way.tags objectForKey:@"natural"] isEqualToString:@"lake"]
+          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"water"]
+          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"pond"]
+          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"lake"]
+          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"reservoid"]
+          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"basin"])
+        {
+          [way.path translate:NSMakePoint (-lonMin, -latMax)];
+          [way.path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
 
-      natural = [way.tags objectForKey:@"natural"];
-
-      if (!natural || ![natural isEqualToString:@"water"])
-        continue;
-
-      [way.path translate:NSMakePoint (-lonMin, -latMax)];
-      [way.path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
-
-      [cairo addPath:way.path];
+          [cairo addPath:way.path
+                  closed:YES];
+          [cairo fill];
+        }
     }
 
-  [cairo setColor:0xffafbfdd];
-  [cairo fill];
+  for (path in poorPaths)
+    {
+      [cairo addPath:path];
+
+      [cairo setColor:rand ()];
+      [cairo setLineWidth:1.0f];
+      [cairo stroke];
+    }
 
   [cairo writeToPNG:@"output.png"];
   [cairo release];
+}
+
+static int print_version;
+static int print_help;
+
+static NSString *mapDataPath = @"planet-latest.osm.pbf";
+
+static struct option long_options[] =
+{
+    { "version",        no_argument, &print_version, 1 },
+    { "help",           no_argument, &print_help,    1 },
+    { "map-data",       required_argument, 0, 'm' },
+    { 0, 0, 0, 0 }
+};
+
+static void
+OsmRenderParseOptions (int argc, char **argv)
+{
+  int i;
+
+  while ((i = getopt_long (argc, argv, "", long_options, 0)) != -1)
+    {
+      switch (i)
+        {
+        case 0:
+
+          break;
+
+        case 'm':
+
+          mapDataPath = [NSString stringWithUTF8String:optarg];
+
+          break;
+
+        case '?':
+
+          fprintf (stderr, "Try `%s --help' for more information.\n", argv[0]);
+
+          exit (EX_USAGE);
+        }
+    }
+
+  if (print_help)
+    {
+      printf ("Usage: %s [OPTION]... <FILE>\n"
+              "\n"
+              "      --map-data=PATH        specify path map data (planet-latest.osm.pbf)\n"
+              "      --help     display this help and exit\n"
+              "      --version  display version information\n"
+              "\n"
+              "Report bugs to <morten.hustveit@gmail.com>\n", argv[0]);
+
+      exit (EXIT_SUCCESS);
+    }
+
+  if (print_version)
+    {
+      fprintf (stdout, "%s\n", PACKAGE_STRING);
+
+      exit (EXIT_SUCCESS);
+    }
+}
+
+static void
+OsmRenderLoadNeighborhoods (NSString *path)
+{
+  SWJSONStreamParser *parser;
+  SWJSONStream *stream;
+  NSDictionary *config;
+  NSArray *areaBox;
+
+  parser = [SWJSONStreamParser new];
+
+  stream = [SWJSONStream new];
+  stream.delegate = parser;
+
+  [stream consumeData:[NSData dataWithContentsOfFile:path]];
+  [stream consumeEnd];
+
+  if (!parser.result)
+    {
+      NSLog (@"Failed to parse %@", path);
+
+      exit (EXIT_FAILURE);
+    }
+
+  config = (NSDictionary *) parser.result;
+
+  if (!([config isKindOfClass:[NSDictionary class]]))
+    errx (EXIT_FAILURE, "%s does not contain an object at the root level",
+          [path UTF8String]);
+
+  if (!(areaBox = [config objectForKey:@"areaBox"]))
+    errx (EXIT_FAILURE, "%s is missing an areaBox",
+          [path UTF8String]);
+
+  latMin = [[areaBox objectAtIndex:0] doubleValue];
+  lonMin = [[areaBox objectAtIndex:1] doubleValue];
+  latMax = [[areaBox objectAtIndex:2] doubleValue];
+  lonMax = [[areaBox objectAtIndex:3] doubleValue];
+
+  if (latMin > latMax)
+    {
+      double tmp;
+
+      tmp = latMin;
+      latMin = latMax;
+      latMax = tmp;
+    }
+
+  if (lonMin > lonMax)
+    {
+      double tmp;
+
+      tmp = lonMin;
+      lonMin = lonMax;
+      lonMax = tmp;
+    }
+
+#if 0
+  double latCenter = (latMin + latMax) * 0.5, lonCenter = (lonMin + lonMax) * 0.5;
+  double lat = (latMax - latMin) * 0.5, lon = (lonMax - lonMin) * 0.5;
+  double scale = 1.5;
+
+  lonMin = lonCenter - lon * scale;
+  lonMax = lonCenter + lon * scale;
+  latMin = latCenter - lat * scale;
+  latMax = latCenter + lat * scale;
+#endif
+
+  NSLog (@"Box: %.5f %.5f %.5f %.5f", latMin, lonMin, latMax, lonMax);
 }
 
 int
@@ -335,19 +535,14 @@ main (int argc, char **argv)
 
   pool = [[NSAutoreleasePool alloc] init];
 
-#if 1
-  lonMin = -74.0475082397461;
-  lonMax = -73.927001953125;
-  latMin = 40.693134153308094;
-  latMax = 40.80809251416925;
-#else
-  latMin = 40.7037000;
-  lonMin = -74.0520000;
-  latMax = 40.7668000;
-  lonMax = -73.9046000;
-#endif
+  OsmRenderParseOptions (argc, argv);
 
-  if (!(mapData = [[MapData alloc] init]))
+  if (optind + 1 != argc)
+    errx (EX_USAGE, "Usage: %s [OPTION]... <FILE>", argv[0]);
+
+  OsmRenderLoadNeighborhoods ([NSString stringWithUTF8String:argv[optind]]);
+
+  if (!(mapData = [[MapData alloc] initWithPath:mapDataPath]))
     errx (EXIT_FAILURE, "Failed to load map data");
 
   ways = [mapData waysInRect:NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin)];

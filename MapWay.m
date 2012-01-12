@@ -6,7 +6,7 @@
 @synthesize path, tags;
 
 - (id)initWithPath:(SWPath *)path_
-              tags:(NSDictionary *)tags_
+              tags:(NSMutableDictionary *)tags_
 {
   if (!(self = [super init]))
     return nil;

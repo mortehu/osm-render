@@ -8,14 +8,14 @@
 @interface MapWay : NSObject
 {
   SWPath *path;
-  NSDictionary *tags;
+  NSMutableDictionary *tags;
 }
 
 @property (nonatomic,readonly) SWPath *path;
-@property (nonatomic,readonly) NSDictionary *tags;
+@property (nonatomic,readonly) NSMutableDictionary *tags;
 
 - (id)initWithPath:(SWPath *)path
-              tags:(NSDictionary *)tags;
+              tags:(NSMutableDictionary *)tags;
 @end
 
 @interface MapData : NSObject
@@ -23,6 +23,8 @@
   NSData *fileData;
   NSMutableDictionary *nodes;
 }
+
+- (id)initWithPath:(NSString *)path;
 
 - (NSArray *)waysInRect:(NSRect)rect;
 @end

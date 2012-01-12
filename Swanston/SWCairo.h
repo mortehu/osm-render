@@ -17,6 +17,8 @@
 - (void)scaleX:(double)x y:(double)y;
 
 - (void)addPath:(SWPath *)path;
+- (void)addPath:(SWPath *)path
+         closed:(BOOL)closed;
 - (void)addRectangle:(NSRect)rect;
 
 - (void)setColor:(uint32_t)argb;

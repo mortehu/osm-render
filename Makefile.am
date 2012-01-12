@@ -9,8 +9,12 @@ OsmRender_SOURCES = \
   MapData.m MapData.h \
   MapWay.m \
   NSData+SWZlib.m \
-  SWPath.m \
+  NSMutableArray+SWJSONStreamDelegate.m \
+  NSMutableDictionary+SWJSONStreamDelegate.m \
   SWCairo.m \
+  SWIndexSet.m \
+  SWJSONStream.m \
+  SWPath.m \
   Osm/fileformat.pb-c.c \
   Osm/osmformat.pb-c.c
 OsmRender_LDFLAGS = -lm -lz -lprotobuf-c `pkg-config cairo --libs` $(GNUSTEP_LIBS)

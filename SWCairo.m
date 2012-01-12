@@ -38,6 +38,13 @@
 
 - (void)addPath:(SWPath *)path
 {
+  [self addPath:path
+         closed:NO];
+}
+
+- (void)addPath:(SWPath *)path
+         closed:(BOOL)closed
+{
   NSUInteger length, i;
   const NSPoint *points;
 
@@ -56,7 +63,12 @@
   if (NSEqualPoints (points[0], points[i]))
     cairo_close_path (cairo);
   else
-    cairo_line_to (cairo, points[i].x, points[i].y);
+    {
+      cairo_line_to (cairo, points[i].x, points[i].y);
+
+      if (closed)
+        cairo_close_path (cairo);
+    }
 }
 
 - (void)addRectangle:(NSRect)rect

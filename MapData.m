@@ -14,17 +14,14 @@
 #import <Foundation/NSData.h>
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSFileManager.h>
-#import <Foundation/NSIndexSet.h>
 #import <Foundation/NSValue.h>
 #import <Swanston/NSData+SWZlib.h>
+#import <Swanston/SWIndexSet.h>
 #import <Swanston/SWPath.h>
 #import <MapData.h>
 
 #import <Osm/fileformat.pb-c.h>
 #import <Osm/osmformat.pb-c.h>
-
-// #define PLANET_PATH       @"/mnt/mortehu/planet-latest.osm.pbf"
-#define PLANET_PATH       @"/mnt/mortehu/us-northeast.osm.pbf"
 
 typedef struct MapDataBounds MapDataBounds;
 
@@ -48,10 +45,15 @@ struct MapDataWay
 @implementation MapData
 - (id)init
 {
+  assert (!"not implemented");
+}
+
+- (id)initWithPath:(NSString *)path
+{
   if (!(self = [super init]))
     return nil;
 
-  if (!(fileData = [[NSData dataWithContentsOfMappedFile:PLANET_PATH] retain]))
+  if (!(fileData = [[NSData dataWithContentsOfMappedFile:path] retain]))
     {
       [self release];
 
@@ -69,9 +71,9 @@ struct MapDataWay
 
 - (void)_findMatchingNodesInPrimitiveBlock:(OSMPBF__PrimitiveBlock *)primitiveBlock
                                     bounds:(MapDataBounds *)bounds
-                             matchingNodes:(NSMutableIndexSet *)matchingNodes
-                              matchingWays:(NSMutableIndexSet *)matchingWays
-                                extraNodes:(NSMutableIndexSet *)extraNodes
+                             matchingNodes:(SWIndexSet *)matchingNodes
+                              matchingWays:(SWIndexSet *)matchingWays
+                                extraNodes:(SWIndexSet *)extraNodes
 {
   size_t i, j, k;
 
@@ -138,17 +140,21 @@ struct MapDataWay
 }
 
 - (void)_collectNodesAndWays:(OSMPBF__PrimitiveBlock *)primitiveBlock
-               matchingNodes:(NSMutableIndexSet *)matchingNodes
-                matchingWays:(NSMutableIndexSet *)matchingWays
-                      result:(NSMutableArray *)result
+               matchingNodes:(SWIndexSet *)matchingNodes
+                matchingWays:(SWIndexSet *)matchingWays
+                      result:(NSMutableDictionary *)result
 {
   size_t i, j, k;
 
   for (i = 0; i < primitiveBlock->n_primitivegroup; ++i)
     {
+      NSAutoreleasePool *pool;
+
       OSMPBF__PrimitiveGroup *primitiveGroup;
       int64_t id = 0, lat, lon;
       unsigned int granularity;
+
+      pool = [NSAutoreleasePool new];
 
       primitiveGroup = primitiveBlock->primitivegroup[i];
 
@@ -231,9 +237,49 @@ struct MapDataWay
                                               tags:tags];
           [path release];
 
-          [result addObject:resultWay];
+          [result setObject:resultWay
+                     forKey:[NSNumber numberWithUnsignedInt:way->id]];
           [resultWay release];
         }
+
+      for (j = 0; j < primitiveGroup->n_relations; ++j)
+        {
+          OSMPBF__Relation *relation;
+          NSMutableDictionary *tags;
+          int32_t memid = 0;
+
+          relation = primitiveGroup->relations[j];
+
+          tags = [NSMutableDictionary dictionaryWithCapacity:relation->n_keys];
+
+          for (k = 0; k < relation->n_keys; ++k)
+            {
+              ProtobufCBinaryData key, value;
+
+              key = primitiveBlock->stringtable->s[relation->keys[k]];
+              value = primitiveBlock->stringtable->s[relation->vals[k]];
+
+              [tags setObject:[[[NSString alloc] initWithBytes:value.data length:value.len encoding:NSUTF8StringEncoding] autorelease]
+                       forKey:[[[NSString alloc] initWithBytes:key.data length:key.len encoding:NSUTF8StringEncoding] autorelease]];
+            }
+
+          for (k = 0; k < relation->n_types; ++k)
+            {
+              MapWay *way;
+
+              memid += relation->memids[k];
+
+              if (relation->types[k] != OSMPBF__RELATION__MEMBER_TYPE__WAY)
+                continue;
+
+              if (!(way = [result objectForKey:[NSNumber numberWithUnsignedInt:memid]]))
+                continue;
+
+              [way.tags addEntriesFromDictionary:tags];
+            }
+        }
+
+      [pool release];
     }
 }
 
@@ -241,13 +287,13 @@ struct MapDataWay
 {
   NSAutoreleasePool *pool;
 
-  NSMutableArray *result;
+  NSMutableDictionary *result;
   NSUInteger offset;
   MapDataBounds bounds;
 
-  NSMutableIndexSet *matchingNodes;
-  NSMutableIndexSet *matchingWays;
-  NSMutableIndexSet *extraNodes;
+  SWIndexSet *matchingNodes;
+  SWIndexSet *matchingWays;
+  SWIndexSet *extraNodes;
   const uint8_t *bytes;
   NSUInteger length;
   NSUInteger pass, progress, lastProgress = -1;
@@ -257,18 +303,16 @@ struct MapDataWay
   bounds.minLat = (int64_t) (NSMinY (realBounds) * 1.0e9);
   bounds.maxLat = (int64_t) (NSMaxY (realBounds) * 1.0e9);
 
-  result = [[[NSMutableArray alloc] init] autorelease];
+  result = [NSMutableDictionary dictionary];
 
   pool = [NSAutoreleasePool new];
-
-  NSLog (@"Bounds: %ld %ld %ld %ld", bounds.minLat, bounds.minLon, bounds.maxLat, bounds.maxLon);
 
   bytes = [fileData bytes];
   length = [fileData length];
 
-  matchingNodes = [NSMutableIndexSet indexSet];
-  matchingWays = [NSMutableIndexSet indexSet];
-  extraNodes = [NSMutableIndexSet indexSet];
+  matchingNodes = [SWIndexSet indexSet];
+  matchingWays = [SWIndexSet indexSet];
+  extraNodes = [SWIndexSet indexSet];
 
   for (pass = 0; pass < 2; ++pass)
     {
@@ -362,8 +406,10 @@ struct MapDataWay
         }
     }
 
+  fprintf (stderr, "\n");
+
   [pool release];
 
-  return result;
+  return [result allValues];
 }
 @end
