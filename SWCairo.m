@@ -24,6 +24,18 @@
   [super dealloc];
 }
 
+- (void)translateX:(double)x
+                 y:(double)y
+{
+  cairo_translate (cairo, x, y);
+}
+
+- (void)scaleX:(double)x
+             y:(double)y
+{
+  cairo_scale (cairo, x, y);
+}
+
 - (void)addPath:(SWPath *)path
 {
   NSUInteger length, i;

@@ -142,6 +142,29 @@ ClipLineToRect (const NSPoint* inside, NSPoint* outside, NSRect rect)
   return NSEqualPoints (points[0], points[length - 1]);
 }
 
+- (void)translate:(NSPoint)offset
+{
+  NSUInteger i;
+
+  for (i = 0; i < length; ++i)
+    {
+      points[i].x += offset.x;
+      points[i].y += offset.y;
+    }
+}
+
+- (void)scale:(NSPoint)scale
+{
+  NSUInteger i;
+
+  for (i = 0; i < length; ++i)
+    {
+      points[i].x *= scale.x;
+      points[i].y *= scale.y;
+    }
+}
+
+
 - (NSArray *)clipToRect:(NSRect)bounds
 {
   NSPoint clippedPoint;

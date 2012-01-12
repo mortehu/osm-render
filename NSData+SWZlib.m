@@ -3,12 +3,20 @@
 #import <Swanston/NSData+SWZlib.h>
 
 @implementation NSData (SWZlib)
++ (id)dataWithZlibBytes:(const void *)bytes
+                 length:(NSUInteger)length
+{
+  return [[[self alloc] initWithZlibBytes:bytes
+                                   length:length] autorelease];
+}
+
 + (id)dataWithZlibData:(NSData *)data
 {
   return [[[self alloc] initWithZlibData:data] autorelease];
 }
 
-- (id)initWithZlibData:(NSData *)data
+- (id)initWithZlibBytes:(const void *)bytes
+                 length:(NSUInteger)length
 {
   z_stream z;
   unsigned char *buffer;
@@ -17,8 +25,8 @@
 
   memset (&z, 0, sizeof (z));
 
-  z.next_in = (Bytef *) [data bytes];
-  z.avail_in = [data length];
+  z.next_in = (Bytef *) bytes;
+  z.avail_in = length;
 
   capacity = z.avail_in;
 
@@ -60,8 +68,9 @@
   if (inflateEnd(&z) != Z_OK)
     goto fail;
 
-  if (!(self = [self initWithBytes:buffer
-                            length:z.total_out]))
+  if (!(self = [self initWithBytesNoCopy:buffer
+                                  length:z.total_out
+                            freeWhenDone:YES]))
     return nil;
 
   return self;
@@ -73,6 +82,12 @@ fail:
   free (buffer);
 
   return nil;
+}
+
+- (id)initWithZlibData:(NSData *)data
+{
+  return [self initWithBytes:data.bytes
+                      length:data.length];
 }
 
 @end

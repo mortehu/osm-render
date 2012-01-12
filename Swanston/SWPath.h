@@ -24,5 +24,8 @@
 - (NSPoint)lastPoint;
 - (BOOL)isCyclic;
 
+- (void)translate:(NSPoint)offset;
+- (void)scale:(NSPoint)scale;
+
 - (NSArray *)clipToRect:(NSRect)bounds;
 @end

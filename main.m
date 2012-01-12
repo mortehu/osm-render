@@ -13,15 +13,10 @@
 #import <cairo/cairo.h>
 
 #import <MapData.h>
-/*
-#import "osm.h"
-*/
+
 static double lonMin, lonMax;
 static double latMin, latMax;
 static unsigned int imageWidth = 1024, imageHeight = 1024;
-
-static double lonScale, lonOffset;
-static double latScale, latOffset;
 
 double
 ClockwiseBoxPosition (NSPoint to, NSRect bounds)
@@ -110,75 +105,68 @@ ConnectEdgePaths (NSMutableArray *paths, NSRect bounds)
   circumference = (bounds.size.width + bounds.size.height) * 2.0;
   discardedPaths = [NSMutableIndexSet indexSet];
 
-  for (i = 0; i < count; )
+  for (i = 0; i < count; ++i)
     {
-      SWPath *path;
-      NSUInteger bestIndex;
-      double bestScore = circumference;
-
-      if ([discardedPaths containsIndex:i])
-        {
-          i++;
-
-          continue;
-        }
-
       path = edgePaths[i].path;
 
-      if ([path isCyclic])
+      while (![discardedPaths containsIndex:i]
+             && !path.isCyclic)
         {
-          i++;
+          NSUInteger bestIndex;
+          double bestScore = circumference;
 
-          continue;
-        }
+          bestIndex = i;
 
-      bestIndex = i;
-
-      for (j = 0; j < count; ++j)
-        {
-          double score;
-
-          if ([discardedPaths containsIndex:j])
-            continue;
-
-          score = edgePaths[j].startAngle - edgePaths[i].endAngle;
-
-          if (score < 0.0)
-            score += circumference;
-
-          if (score < bestScore)
+          for (j = 0; j < count; ++j)
             {
-              bestIndex = j;
-              bestScore = score;
-            }
-        }
+              double score;
 
-      if (bestScore < circumference)
-        {
-          NSPoint from, to;
+              if ([discardedPaths containsIndex:j] || edgePaths[j].path.isCyclic)
+                continue;
 
-          from = edgePaths[i].path.lastPoint;
-          to = edgePaths[bestIndex].path.firstPoint;
+              score = edgePaths[j].startAngle - edgePaths[i].endAngle;
 
-          if ((from.x != to.x && from.y != to.y)
-              || edgePaths[i].endAngle >= edgePaths[bestIndex].startAngle)
-            {
-              ConnectClockwise (edgePaths[i].path, from, to, bounds);
+              if (score < 0.0)
+                score += circumference;
+
+              if (score < bestScore)
+                {
+                  bestIndex = j;
+                  bestScore = score;
+                }
             }
 
-          if (bestIndex == i)
-            [path addPoint:path.firstPoint];
+          if (bestScore < circumference)
+            {
+              NSPoint from, to;
+
+              from = edgePaths[i].path.lastPoint;
+              to = edgePaths[bestIndex].path.firstPoint;
+
+              if ((from.x != to.x && from.y != to.y)
+                  || edgePaths[i].endAngle >= edgePaths[bestIndex].startAngle)
+                {
+                  ConnectClockwise (edgePaths[i].path, from, to, bounds);
+                }
+
+              if (bestIndex == i)
+                [path addPoint:path.firstPoint];
+              else
+                {
+                  [path addPointsFromPath:edgePaths[bestIndex].path];
+
+                  edgePaths[i].endAngle = edgePaths[bestIndex].endAngle;
+
+                  [discardedPaths addIndex:bestIndex];
+                }
+            }
           else
             {
-              [path addPointsFromPath:edgePaths[bestIndex].path];
+              NSLog (@"Drats!");
 
-              edgePaths[i].endAngle = edgePaths[bestIndex].endAngle;
-
-              [discardedPaths addIndex:bestIndex];
+              break;
             }
         }
-      else
-        NSLog (@"Drats!");
     }
 
   [paths removeObjectsAtIndexes:discardedPaths];
@@ -202,6 +190,8 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
   discardedPaths = [NSMutableIndexSet indexSet];
 
   count = [paths count];
+
+  /* Concatenate paths */
 
   for (i = 0; i < count; ++i)
     {
@@ -258,13 +248,13 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
 }
 
 void
-osm_paint (void)
+osm_paint (NSArray *ways)
 {
   NSRect bounds;
   NSMutableArray *coastPaths;
   SWCairo *cairo;
   SWPath *path;
-  size_t j;
+  MapWay *way;
 
   coastPaths = [[NSMutableArray alloc] init];
 
@@ -277,43 +267,32 @@ osm_paint (void)
   [cairo addRectangle:bounds];
   [cairo fill];
 
-#if 0
-  for (j = 0; j < way_count; ++j)
+  /* Find coastline segments */
+
+  for (way in ways)
     {
-      NSPoint *points;
+      NSString *natural;
       NSArray *clippedPaths;
 
-      const struct osm_way *way;
-      size_t i;
+      natural = [way.tags objectForKey:@"natural"];
 
-      way = &ways[j];
-
-      if (way->natural != OSM_NATURAL_COASTLINE
-          /*&& way->natural != OSM_NATURAL_WATER*/)
+      if (!natural || ![natural isEqualToString:@"coastline"])
         continue;
 
-      points = calloc (way->node_count, sizeof (*points));
+      [way.path translate:NSMakePoint (-lonMin, -latMax)];
+      [way.path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
 
-      for (i = 0; i < way->node_count; ++i)
-        {
-          points[i].x = imageWidth / 2 + (nodes[node_refs[way->first_node + i]].lon + lonOffset) * lonScale;
-          points[i].y = imageHeight / 2 - (nodes[node_refs[way->first_node + i]].lat + latOffset) * latScale;
-        }
-
-      path = [[SWPath alloc] initWithPointsNoCopy:points
-                                           length:way->node_count];
-
-      clippedPaths = [path clipToRect:bounds];
+      clippedPaths = [way.path clipToRect:bounds];
 
       if (clippedPaths)
         [coastPaths addObjectsFromArray:clippedPaths];
-
-      [path release];
-
     }
-#endif
+
+  /* Merge coastlines into a single poly-polygon */
 
   MergeCoastPaths (coastPaths, bounds);
+
+  /* ... and draw it */
 
   for (path in coastPaths)
     {
@@ -323,41 +302,25 @@ osm_paint (void)
       [cairo addPath:path];
     }
 
-  [cairo setColor:0xffafbfdd];
-  [cairo fill];
+  /* Add ponds and such */
 
-#if 0
-  for (j = 0; j < way_count; ++j)
+  for (way in ways)
     {
-      const struct osm_way *way;
-      size_t i;
+      NSString *natural;
 
-      NSPoint *points;
+      natural = [way.tags objectForKey:@"natural"];
 
-      way = &ways[j];
-
-      if (way->natural != OSM_NATURAL_WATER)
+      if (!natural || ![natural isEqualToString:@"water"])
         continue;
 
-      points = calloc (way->node_count, sizeof (*points));
+      [way.path translate:NSMakePoint (-lonMin, -latMax)];
+      [way.path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
 
-      for (i = 0; i < way->node_count; ++i)
-        {
-          points[i].x = imageWidth / 2 + (nodes[node_refs[way->first_node + i]].lon + lonOffset) * lonScale;
-          points[i].y = imageHeight / 2 - (nodes[node_refs[way->first_node + i]].lat + latOffset) * latScale;
-        }
-
-      path = [[SWPath alloc] initWithPointsNoCopy:points
-                                           length:way->node_count];
-
-
-      [cairo addPath:path];
-      [cairo fill];
-
-      [path release];
-
+      [cairo addPath:way.path];
     }
-#endif
+
+  [cairo setColor:0xffafbfdd];
+  [cairo fill];
 
   [cairo writeToPNG:@"output.png"];
   [cairo release];
@@ -384,12 +347,6 @@ main (int argc, char **argv)
   lonMax = -73.9046000;
 #endif
 
-  latOffset = -(latMin + latMax) * 0.5;
-  lonOffset = -(lonMin + lonMax) * 0.5;
-
-  latScale = imageHeight / (latMax - latMin);
-  lonScale = imageWidth / (lonMax - lonMin);
-
   if (!(mapData = [[MapData alloc] init]))
     errx (EXIT_FAILURE, "Failed to load map data");
 
@@ -397,7 +354,7 @@ main (int argc, char **argv)
 
   NSLog (@"Got %lu ways", [ways count]);
 
-  osm_paint ();
+  osm_paint (ways);
 
   [pool release];
 

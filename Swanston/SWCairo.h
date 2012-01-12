@@ -13,6 +13,9 @@
 - (id)initWithSize:(NSSize)size
             format:(cairo_format_t)format;
 
+- (void)translateX:(double)x y:(double)y;
+- (void)scaleX:(double)x y:(double)y;
+
 - (void)addPath:(SWPath *)path;
 - (void)addRectangle:(NSRect)rect;
 
