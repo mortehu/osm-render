@@ -4,6 +4,8 @@
 *.lo
 *.log
 *.o
+*.osm
+*.osm.pbf
 *.so
 *.status
 *~
@@ -31,6 +33,7 @@
 /m4
 /missing
 /stamp-h1
+OsmRender
 core
 core.*
 vgcore.*
