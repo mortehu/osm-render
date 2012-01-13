@@ -10,6 +10,9 @@
   cairo_surface_t *surface;
 }
 
+@property (nonatomic,readonly) cairo_t *cairo;
+@property (nonatomic,readonly) cairo_surface_t *surface;
+
 - (id)initWithSize:(NSSize)size
             format:(cairo_format_t)format;
 

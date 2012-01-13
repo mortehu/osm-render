@@ -15,11 +15,28 @@
 #import <unistd.h>
 
 #import <cairo/cairo.h>
+#import <pango/pangocairo.h>
 
+static int print_version;
+static int print_help;
+
+static NSString *mapDataPath = @".";
+static unsigned int imageWidth = 396, imageHeight = 396;
+static uint32_t landColor = 0xf6f5f2;
+static uint32_t inactiveAreaColor = 0xdee9f1;
+static uint32_t waterColor = 0xaec6e1;
+
+static struct option long_options[] =
+{
+    { "version",        no_argument, &print_version, 1 },
+    { "help",           no_argument, &print_help,    1 },
+    { "map-path",       required_argument, 0, 'm' },
+    { 0, 0, 0, 0 }
+};
 
 static double lonMin, lonMax;
 static double latMin, latMax;
-static unsigned int imageWidth = 1024, imageHeight = 1024;
+static NSMutableArray *neighborhoods;
 
 double
 ClockwiseBoxPosition (NSPoint to, NSRect bounds)
@@ -177,8 +194,6 @@ ConnectEdgePaths (NSMutableArray *paths, NSRect bounds)
   free (edgePaths);
 }
 
-static NSMutableArray *poorPaths;
-
 void
 MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
 {
@@ -237,8 +252,6 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
       while (wasUpdated);
     }
 
-  poorPaths = [[NSMutableArray alloc] init];
-
   [paths removeObjectsAtIndexes:discardedPaths];
   count = [paths count];
 
@@ -261,37 +274,7 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
           || (end.x > minX && end.y > minY
               && end.x < maxX && end.y < maxY))
         {
-          [poorPaths addObject:pathA];
-
           [discardedPaths addIndex:i];
-        }
-    }
-
-    {
-      for (i = 0; i < [poorPaths count]; ++i)
-        {
-          pathA = [poorPaths objectAtIndex:i];
-
-          for (j = 0; j < [poorPaths count]; ++j)
-            {
-              NSPoint a, b;
-              double distance;
-
-              if (j == i)
-                continue;
-
-              pathB = [poorPaths objectAtIndex:j];
-
-              a = pathA.lastPoint;
-              b = pathB.firstPoint;
-
-              if (NSEqualPoints (a, b))
-                NSLog (@"Exactly equal");
-
-              distance = (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
-
-              NSLog (@"Not exactly equal, but distance is: %g", sqrt (distance));
-            }
         }
     }
 
@@ -301,7 +284,7 @@ MergeCoastPaths (NSMutableArray *paths, NSRect bounds)
 }
 
 void
-osm_paint (NSArray *ways)
+OsmRender (NSArray *ways)
 {
   NSRect bounds;
   NSMutableArray *coastPaths;
@@ -316,7 +299,7 @@ osm_paint (NSArray *ways)
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
 
-  [cairo setColor:0xffefebe2];
+  [cairo setColor:landColor];
   [cairo addRectangle:bounds];
   [cairo fill];
 
@@ -355,7 +338,7 @@ osm_paint (NSArray *ways)
       [cairo addPath:path];
     }
 
-  [cairo setColor:0xffafbfdd];
+  [cairo setColor:waterColor];
   [cairo fill];
 
   /* Add ponds and such */
@@ -382,31 +365,47 @@ osm_paint (NSArray *ways)
         }
     }
 
-  for (path in poorPaths)
-    {
-      [cairo addPath:path];
+  /* Add neighborhoods */
 
-      [cairo setColor:rand ()];
-      [cairo setLineWidth:1.0f];
-      [cairo stroke];
+    {
+      SWCairo *mask, *source;
+
+      mask = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
+                                    format:CAIRO_FORMAT_A8];
+      source = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
+                                      format:CAIRO_FORMAT_RGB24];
+
+      for (path in neighborhoods)
+        [mask addPath:path closed:YES];
+      [mask fill];
+
+      cairo_set_operator ([mask cairo], CAIRO_OPERATOR_DEST_OUT);
+      [mask setLineWidth:3.0f];
+
+      [source setColor:inactiveAreaColor];
+
+      for (path in neighborhoods)
+        {
+          [mask addPath:path closed:YES];
+          [source addPath:path closed:YES];
+        }
+
+      [mask stroke];
+      [source fill];
+
+      cairo_set_source_surface (cairo.cairo, source.surface, 0.0, 0.0);
+      cairo_mask_surface (cairo.cairo, mask.surface, 0.0, 0.0);
+
+      cairo_set_source (cairo.cairo, 0);
+      cairo_mask (cairo.cairo, 0);
+
+      [source release];
+      [mask release];
     }
 
   [cairo writeToPNG:@"output.png"];
   [cairo release];
 }
-
-static int print_version;
-static int print_help;
-
-static NSString *mapDataPath = @"planet-latest.osm.pbf";
-
-static struct option long_options[] =
-{
-    { "version",        no_argument, &print_version, 1 },
-    { "help",           no_argument, &print_help,    1 },
-    { "map-data",       required_argument, 0, 'm' },
-    { 0, 0, 0, 0 }
-};
 
 static void
 OsmRenderParseOptions (int argc, char **argv)
@@ -439,7 +438,7 @@ OsmRenderParseOptions (int argc, char **argv)
     {
       printf ("Usage: %s [OPTION]... <FILE>\n"
               "\n"
-              "      --map-data=PATH        specify path map data (planet-latest.osm.pbf)\n"
+              "      --map-path=PATH        path containing .osm.pbf files\n"
               "      --help     display this help and exit\n"
               "      --version  display version information\n"
               "\n"
@@ -485,7 +484,7 @@ OsmRenderLoadNeighborhoods (NSString *path)
     errx (EXIT_FAILURE, "%s does not contain an object at the root level",
           [path UTF8String]);
 
-  if (!(areaBox = [config objectForKey:@"areaBox"]))
+  if (!(areaBox = [config objectForKey:@"cityBox"]))
     errx (EXIT_FAILURE, "%s is missing an areaBox",
           [path UTF8String]);
 
@@ -512,26 +511,94 @@ OsmRenderLoadNeighborhoods (NSString *path)
       lonMax = tmp;
     }
 
-#if 0
-  double latCenter = (latMin + latMax) * 0.5, lonCenter = (lonMin + lonMax) * 0.5;
-  double lat = (latMax - latMin) * 0.5, lon = (lonMax - lonMin) * 0.5;
-  double scale = 1.5;
-
-  lonMin = lonCenter - lon * scale;
-  lonMax = lonCenter + lon * scale;
-  latMin = latCenter - lat * scale;
-  latMax = latCenter + lat * scale;
-#endif
-
   NSLog (@"Box: %.5f %.5f %.5f %.5f", latMin, lonMin, latMax, lonMax);
+
+  neighborhoods = [NSMutableArray new];
+
+  for (NSDictionary *area in [config objectForKey:@"areas"])
+    {
+      SWPath *path;
+      NSString *vertex;
+
+      path = [SWPath new];
+
+      for (vertex in [(NSString *)[area objectForKey:@"polygon"] componentsSeparatedByString:@","])
+        {
+          NSPoint point;
+
+          sscanf ([vertex UTF8String], "%lf %lf", &point.y, &point.x);
+
+          [path addPoint:point];
+        }
+
+      [path translate:NSMakePoint (-lonMin, -latMax)];
+      [path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
+
+      [neighborhoods addObject:path];
+      [path release];
+    }
+}
+
+NSString *
+OsmRenderFindMapFile (NSRect geoBounds)
+{
+  NSAutoreleasePool *pool;
+  NSString *bestMatch = nil;
+  double bestArea;
+
+  pool = [NSAutoreleasePool new];
+  
+  for (NSString *path in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:mapDataPath error:NULL])
+    {
+      NSString *fullPath;
+      MapData *mapData;
+      NSRect mapBounds;
+      NSRange range;
+
+      range = [path rangeOfString:@"\\.osm\\.pbf$"
+                          options:NSRegularExpressionSearch];
+
+      if (range.location == NSNotFound)
+        continue;
+
+      fullPath = [mapDataPath stringByAppendingPathComponent:path];
+
+      mapData = [[MapData alloc] initWithPath:fullPath];
+
+      mapBounds = mapData.bounds;
+
+      [mapData release];
+
+      if (NSContainsRect (mapBounds, geoBounds))
+        {
+          double area;
+
+          area = mapBounds.size.width * mapBounds.size.height;
+
+          if (!bestMatch || area < bestArea)
+            {
+              bestMatch = fullPath;
+              bestArea = area;
+            }
+        }
+    }
+
+  [bestMatch retain];
+  [pool release];
+
+  NSLog (@"%@", bestMatch);
+
+  return [bestMatch autorelease];
 }
 
 int
 main (int argc, char **argv)
 {
+  NSString *mapFilePath;
   NSAutoreleasePool *pool;
   MapData *mapData;
   NSArray *ways;
+  NSRect geoBounds;
 
   pool = [[NSAutoreleasePool alloc] init];
 
@@ -542,14 +609,18 @@ main (int argc, char **argv)
 
   OsmRenderLoadNeighborhoods ([NSString stringWithUTF8String:argv[optind]]);
 
-  if (!(mapData = [[MapData alloc] initWithPath:mapDataPath]))
+  geoBounds = NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin);
+
+  mapFilePath = OsmRenderFindMapFile (geoBounds);
+
+  if (!(mapData = [[MapData alloc] initWithPath:mapFilePath]))
     errx (EXIT_FAILURE, "Failed to load map data");
 
-  ways = [mapData waysInRect:NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin)];
+  ways = [mapData waysInRect:geoBounds];
 
   NSLog (@"Got %lu ways", [ways count]);
 
-  osm_paint (ways);
+  OsmRender (ways);
 
   [pool release];
 

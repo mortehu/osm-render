@@ -6,6 +6,10 @@ AC_PROG_OBJC
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 
+PKG_CHECK_MODULES([PACKAGES], [pangocairo >= 1.29 cairo >= 1.10])
+AC_SUBST(PACKAGES_OBJCFLAGS)
+AC_SUBST(PACKAGES_LIBS)
+
 GNUSTEP_OBJCFLAGS="-DGNUSTEP -DGNUSTEP_BASE_LIBRARY=1 -DGNU_RUNTIME=1 -DGNUSTEP_BASE_LIBRARY=1 -DGSWARN -DGSDIAGNOSE -fno-strict-aliasing -fexceptions -fobjc-exceptions -D_NATIVE_OBJC_EXCEPTIONS -fgnu-runtime -fconstant-string-class=NSConstantString -I/usr/include/GNUstep"
 GNUSTEP_LIBS="-fexceptions -fgnu-runtime -lgnustep-base -lobjc"
 AC_SUBST(GNUSTEP_OBJCFLAGS)

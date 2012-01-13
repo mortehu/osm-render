@@ -3,6 +3,8 @@
 #import <Swanston/SWPath.h>
 
 @implementation SWCairo
+@synthesize cairo, surface;
+
 - (id)initWithSize:(NSSize)size
             format:(cairo_format_t)format
 {
