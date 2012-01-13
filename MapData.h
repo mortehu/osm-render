@@ -26,5 +26,7 @@
 
 - (id)initWithPath:(NSString *)path;
 
+- (NSRect)bounds;
+
 - (NSArray *)waysInRect:(NSRect)rect;
 @end

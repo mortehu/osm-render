@@ -283,6 +283,77 @@ struct MapDataWay
     }
 }
 
+- (NSRect)bounds
+{
+  OSMPBF__BlobHeader *blobHeader = NULL;
+  const uint8_t *bytes;
+  NSUInteger length, offset = 0;
+  NSRect result;
+  int32_t headerSize;
+
+  result = NSMakeRect(0.0, 0.0, 0.0, 0.0);
+
+  bytes = [fileData bytes];
+  length = [fileData length];
+
+  headerSize = ntohl (*(int32_t *) (bytes + offset));
+  offset += 4;
+
+  if (offset + headerSize > length)
+    return result;
+
+  blobHeader = osmpbf__blob_header__unpack (0, headerSize, bytes + offset);
+  offset += headerSize;
+
+  if (offset + blobHeader->datasize > length)
+    {
+      osmpbf__blob_header__free_unpacked (blobHeader, 0);
+
+      return result;
+    }
+
+  if (!strcmp (blobHeader->type, "OSMHeader"))
+    {
+      OSMPBF__Blob *blob;
+      OSMPBF__HeaderBlock *headerBlock;
+      NSData *payloadData;
+
+      blob = osmpbf__blob__unpack (0, blobHeader->datasize, bytes + offset);
+
+      if (blob->has_raw)
+        {
+          payloadData = [NSData dataWithBytesNoCopy:blob->raw.data
+                                             length:blob->raw.len
+                                       freeWhenDone:NO];
+        }
+      else if (blob->has_zlib_data)
+        {
+          payloadData = [NSData dataWithZlibBytes:blob->zlib_data.data
+                                           length:blob->zlib_data.len];
+        }
+      else
+        {
+          assert (!"unsupported compression scheme");
+        }
+
+      assert (payloadData.length == blob->raw_size);
+
+      headerBlock = osmpbf__header_block__unpack (0, payloadData.length, payloadData.bytes);
+
+      result = NSMakeRect (headerBlock->bbox->left * 1.0e-9,
+                           headerBlock->bbox->bottom * 1.0e-9,
+                           (headerBlock->bbox->right - headerBlock->bbox->left) * 1.0e-9,
+                           (headerBlock->bbox->top - headerBlock->bbox->bottom) * 1.0e-9);
+
+      osmpbf__header_block__free_unpacked (headerBlock, 0);
+      osmpbf__blob__free_unpacked (blob, 0);
+    }
+
+  osmpbf__blob_header__free_unpacked (blobHeader, 0);
+
+  return result;
+}
+
 - (NSArray *)waysInRect:(NSRect)realBounds
 {
   NSAutoreleasePool *pool;
@@ -319,10 +390,9 @@ struct MapDataWay
       for (offset = 0; offset < length; )
         {
           NSAutoreleasePool *pool;
-          int32_t chunkSize;
+          int32_t headerSize;
 
           OSMPBF__BlobHeader *blobHeader;
-          OSMPBF__Blob *blob;
 
           pool = [NSAutoreleasePool new];
 
@@ -333,18 +403,19 @@ struct MapDataWay
               lastProgress = progress;
             }
 
-          chunkSize = ntohl (*(int32_t *) (bytes + offset));
+          headerSize = ntohl (*(int32_t *) (bytes + offset));
           offset += 4;
 
-          assert (offset + chunkSize <= length);
+          assert (offset + headerSize <= length);
 
-          blobHeader = osmpbf__blob_header__unpack (0, chunkSize, bytes + offset);
-          offset += chunkSize;
+          blobHeader = osmpbf__blob_header__unpack (0, headerSize, bytes + offset);
+          offset += headerSize;
 
           assert (offset + blobHeader->datasize <= length);
 
           if (!strcmp (blobHeader->type, "OSMData"))
             {
+              OSMPBF__Blob *blob;
               OSMPBF__PrimitiveBlock *primitiveBlock;
               NSData *payloadData;
 
