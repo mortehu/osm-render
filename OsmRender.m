@@ -24,9 +24,9 @@ static int print_help;
 static NSString *mapDataPath = @".";
 static NSString *prefix = @"output";
 static unsigned int imageWidth = 396, imageHeight = 396;
-static NSString *inactiveAreaLabelFont = @"Arial Bold 11";
-static NSString *activeAreaLabelFont = @"Arial Bold 11";
-static NSString *landmarkLabelFont = @"Arial 11";
+static NSString *inactiveAreaLabelFont = @"Arial Bold 8";
+static NSString *activeAreaLabelFont = @"Arial Bold 8";
+static NSString *landmarkLabelFont = @"Arial 8";
 static uint32_t landColor = 0xfff6f5f2;
 static uint32_t inactiveAreaColor = 0xffdee9f1;
 static uint32_t activeAreaColor = 0xfffec801;
@@ -40,6 +40,18 @@ static uint32_t landmarkBulletColor = 0xff7c126a;
 
 static struct option long_options[] =
 {
+    { "active-area-font",      required_argument, 0, 'A' },
+    { "active-area-font-color", required_argument, 0, 'a' },
+    { "active-area-color",     required_argument, 0, 'B' },
+    { "active-area-bgcolor",   required_argument, 0, 'C' },
+    { "inactive-area-font",    required_argument, 0, 'D' },
+    { "inactive-area-font-color",    required_argument, 0, 'd' },
+    { "inactive-area-color",   required_argument, 0, 'E' },
+    { "landmark-font",         required_argument, 0, 'F' },
+    { "landmark-color",        required_argument, 0, 'G' },
+    { "landmark-bullet-color", required_argument, 0, 'H' },
+    { "land-color",            required_argument, 0, 'I' },
+    { "water-color",           required_argument, 0, 'J' },
     { "size",      required_argument, 0, 's' },
     { "prefix",    required_argument, 0, 'p' },
     { "map-path",  required_argument, 0, 'm' },
@@ -545,6 +557,78 @@ OsmRenderParseOptions (int argc, char **argv)
 
           break;
 
+        case 'A':
+
+          activeAreaLabelFont = [NSString stringWithUTF8String:optarg];
+
+          break;
+
+        case 'a':
+
+          activeAreaLabelColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'B':
+
+          activeAreaColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'C':
+
+          activeAreaLabelBackgroundColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'D':
+
+          inactiveAreaLabelFont = [NSString stringWithUTF8String:optarg];
+
+          break;
+
+        case 'd':
+
+          inactiveAreaLabelColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'E':
+
+          inactiveAreaColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'F':
+
+          landmarkLabelFont = [NSString stringWithUTF8String:optarg];
+
+          break;
+
+        case 'G':
+
+          landmarkLabelColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'H':
+
+          landmarkBulletColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'I':
+
+          landColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'J':
+
+          waterColor = strtol (optarg, 0, 0);
+
+          break;
+
         case 's':
 
           imageWidth = imageHeight = strtol (optarg, 0, 0);
@@ -575,11 +659,26 @@ OsmRenderParseOptions (int argc, char **argv)
     {
       printf ("Usage: %s [OPTION]... <FILE>\n"
               "\n"
+              "      --active-area-font=FONT\n"
+              "      --active-area-font-color=COLOR\n"
+              "      --active-area-color=COLOR\n"
+              "      --active-area-bgcolor=COLOR\n"
+              "      --inactive-area-font=FONT\n"
+              "      --inactive-area-font-color=COLOR\n"
+              "      --inactive-area-color=COLOR\n"
+              "      --landmark-font=FONT\n"
+              "      --landmark-color=COLOR\n"
+              "      --landmark-bullet-color=COLOR\n"
+              "      --land-color=COLOR\n"
+              "      --water-color=COLOR\n"
               "      --size=PIXELS          width of output image\n"
               "      --prefix=STRING        prefix for output file names\n"
               "      --map-path=PATH        path containing .osm.pbf files\n"
               "      --help     display this help and exit\n"
               "      --version  display version information\n"
+              "\n"
+              "Example font:  Arial Bold 8\n"
+              "Example color: 0xff553322 (Components are in ARGB order)\n"
               "\n"
               "Report bugs to <morten.hustveit@gmail.com>\n", argv[0]);
 
