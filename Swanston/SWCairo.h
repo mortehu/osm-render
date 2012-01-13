@@ -23,6 +23,8 @@
 - (void)addPath:(SWPath *)path
          closed:(BOOL)closed;
 - (void)addRectangle:(NSRect)rect;
+- (void)addRectangle:(NSRect)rect
+              radius:(double)radius;
 
 - (void)setColor:(uint32_t)argb;
 

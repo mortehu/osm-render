@@ -15,6 +15,7 @@ OsmRender_SOURCES = \
   SWIndexSet.m \
   SWJSONStream.m \
   SWPath.m \
+  SWPango.m \
   Osm/fileformat.pb-c.c \
   Osm/osmformat.pb-c.c
 OsmRender_LDFLAGS = -lm -lz -lprotobuf-c $(PACKAGES_LIBS) $(GNUSTEP_LIBS)

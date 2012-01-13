@@ -78,12 +78,36 @@
   cairo_rectangle (cairo, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 }
 
+- (void)addRectangle:(NSRect)rect
+              radius:(double)radius
+{
+  double x, y;
+  double width, height;
+
+  x = rect.origin.x;
+  y = rect.origin.y;
+  width = rect.size.width;
+  height = rect.size.height;
+
+  cairo_move_to  (cairo, x + radius, y);
+  cairo_line_to  (cairo, x + width - radius, y);
+  cairo_curve_to (cairo, x + width, y, x + width, y, x + width, y + radius);
+  cairo_line_to  (cairo, x + width, y + height - radius);
+  cairo_curve_to (cairo, x + width, y + height, x + width, y + height, x + width - radius, y + height);
+  cairo_line_to  (cairo, x + radius, y + height);
+  cairo_curve_to (cairo, x, y + height, x, y + height, x, y + height - radius);
+  cairo_line_to  (cairo, x, y + radius);
+  cairo_curve_to (cairo, x, y, x, y, x + radius, y);
+  cairo_close_path (cairo);
+}
+
 - (void)setColor:(uint32_t)argb
 {
-  cairo_set_source_rgb (cairo,
+  cairo_set_source_rgba (cairo,
                         ((argb >> 16) & 0xff) / 255.0f,
                         ((argb >> 8) & 0xff) / 255.0f,
-                        (argb & 0xff) / 255.0f);
+                        (argb & 0xff) / 255.0f,
+                        (argb >> 24) / 255.0f);
 }
 
 - (void)setLineWidth:(float)width
