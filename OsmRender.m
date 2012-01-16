@@ -28,6 +28,7 @@ static NSString *inactiveAreaLabelFont = @"Arial Bold 8";
 static NSString *activeAreaLabelFont = @"Arial Bold 8";
 static NSString *landmarkLabelFont = @"Arial 8";
 static uint32_t landColor = 0xfff6f5f2;
+static uint32_t parkColor = 0xffc9dfaf;
 static uint32_t inactiveAreaColor = 0xffdee9f1;
 static uint32_t activeAreaColor = 0xfffec801;
 static uint32_t waterColor = 0xffaec6e1;
@@ -52,6 +53,7 @@ static struct option long_options[] =
     { "landmark-bullet-color", required_argument, 0, 'H' },
     { "land-color",            required_argument, 0, 'I' },
     { "water-color",           required_argument, 0, 'J' },
+    { "park-color",            required_argument, 0, 'K' },
     { "size",      required_argument, 0, 's' },
     { "prefix",    required_argument, 0, 'p' },
     { "map-path",  required_argument, 0, 'm' },
@@ -67,6 +69,7 @@ static struct option long_options[] =
   SWPath *path;
   NSString *name;
   NSPoint center;
+  int type;
 }
 @end
 
@@ -433,7 +436,17 @@ OsmRender (NSArray *ways, NSUInteger activeArea, BOOL hover)
           [mask addPath:neighborhood->path closed:YES];
           [source addPath:neighborhood->path closed:YES];
 
-          [source setColor:(i == activeArea && !hover) ? activeAreaColor : inactiveAreaColor];
+          if (i == activeArea && !hover)
+            [source setColor:activeAreaColor];
+          else
+            {
+              switch (neighborhood->type)
+                {
+                case 2:  [source setColor:parkColor]; break;
+                default: [source setColor:inactiveAreaColor];
+                }
+            }
+
           [source fill];
 
           i++;
@@ -459,6 +472,7 @@ OsmRender (NSArray *ways, NSUInteger activeArea, BOOL hover)
       text = [SWPangoLayout layoutWithCairo:cairo];
 
       [text setFontFromString:(i == activeArea) ? activeAreaLabelFont : inactiveAreaLabelFont];
+      [text setAlignment:PANGO_ALIGN_CENTER];
       [text setText:neighborhood->name];
 
       textSize = text.size;
@@ -482,7 +496,13 @@ OsmRender (NSArray *ways, NSUInteger activeArea, BOOL hover)
 
       if (i == activeArea)
         {
-          [cairo addRectangle:NSInsetRect (textRect, -2.0, -2.0)
+          NSRect textBounds;
+
+          textBounds = NSOffsetRect (textRect, -3.0, -3.0);
+          textBounds.size.width += 5.0;
+          textBounds.size.height += 5.0;
+
+          [cairo addRectangle:textBounds
                        radius:4];
           [cairo setColor:activeAreaLabelBackgroundColor];
           [cairo fill];
@@ -507,12 +527,16 @@ OsmRender (NSArray *ways, NSUInteger activeArea, BOOL hover)
       NSSize textSize;
       NSPoint position;
 
+      if (![[landmark objectForKey:@"display"] boolValue])
+        continue;
+
       text = [SWPangoLayout layoutWithCairo:cairo];
 
       [cairo setColor:inactiveAreaLabelColor];
 
       [text setFontFromString:landmarkLabelFont];
-      [text setText:[landmark objectForKey:@"name"]];
+      [text setAlignment:PANGO_ALIGN_CENTER];
+      [text setText:[landmark objectForKey:@"label"]];
 
       textSize = text.size;
 
@@ -626,6 +650,12 @@ OsmRenderParseOptions (int argc, char **argv)
         case 'J':
 
           waterColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'K':
+
+          parkColor = strtol (optarg, 0, 0);
 
           break;
 
@@ -775,6 +805,8 @@ OsmRenderLoadNeighborhoods (NSString *path)
       neighborhood->center.x = [[[area objectForKey:@"center"] objectAtIndex:1] doubleValue];
       neighborhood->center.y = [[[area objectForKey:@"center"] objectAtIndex:0] doubleValue];
       OsmRenderTransformPoint (&neighborhood->center);
+
+      neighborhood->type = [[area objectForKey:@"type"] intValue];
 
       [neighborhoods addObject:neighborhood];
       [neighborhood release];

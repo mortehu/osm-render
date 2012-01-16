@@ -59,6 +59,11 @@
   pango_font_description_free (fontDescription);
 }
 
+- (void)setAlignment:(PangoAlignment)alignment
+{
+  pango_layout_set_alignment (layout, alignment);
+}
+
 - (void)setText:(NSString *)text
 {
   pango_layout_set_text (layout, [text UTF8String], [text length]);

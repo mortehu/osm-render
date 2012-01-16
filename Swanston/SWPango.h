@@ -22,6 +22,8 @@
 
 - (void)setFontFromString:(NSString *)text;
 
+- (void)setAlignment:(PangoAlignment)alignment;
+
 - (void)setText:(NSString *)text;
 
 - (NSSize)size;
