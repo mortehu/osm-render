@@ -6,6 +6,7 @@
 *.o
 *.osm
 *.osm.pbf
+*.png
 *.so
 *.status
 *~
