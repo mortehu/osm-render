@@ -16,17 +16,29 @@ OsmRender_SOURCES = \
   SWJSONStream.m \
   SWPath.m \
   SWPango.m \
+  Swanston/SWPango.h \
+  Swanston/SWCairo.h \
+  Swanston/NSData+SWZlib.h \
+  Swanston/NSMutableDictionary+SWJSONStreamDelegate.h \
+  Swanston/SWPath.h \
+  Swanston/SWXMLParser.h \
+  Swanston/SWJSONStream.h \
+  Swanston/SWIndexSet.h \
+  Swanston/NSMutableArray+SWJSONStreamDelegate.h \
+  Swanston/SWConsumer.h \
   Osm/fileformat.pb-c.c \
-  Osm/osmformat.pb-c.c
+  Osm/osmformat.pb-c.c \
+  Osm/osmformat.pb-c.h \
+  Osm/fileformat.pb-c.h
 OsmRender_LDFLAGS = -lm -lz -lprotobuf-c $(PACKAGES_LIBS) $(GNUSTEP_LIBS)
+
+EXTRA_DIST = cities.cfg options.cfg
 
 REQUIRED_OSM_BUNDLES = map-data/great_britain.osm.pbf
 
-map-data:
-	mkdir map-data
-
-map-data/%.osm.pbf: map-data
+map-data/%.osm.pbf:
+	@mkdir -p map-data
 	wget http://download.geofabrik.de/osm/europe/great_britain.osm.pbf -O $@
 
 images: $(REQUIRED_OSM_BUNDLES)
-	for a in `cat cities.cfg`; do wget http://www.stay.com/api/1.0/areas/?cityID=160 -O"city-$$a.json" && cat options.cfg | xargs ./OsmRender --prefix="city-$$a" "city-$$a.json"; done
+	for a in `cat cities.cfg`; do wget http://www.stay.com/api/1.0/areas/?cityID=$$a -O"city-$$a.json" && cat options.cfg | xargs ./OsmRender --prefix="city-$$a" "city-$$a.json"; done
