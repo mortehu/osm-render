@@ -367,7 +367,7 @@ struct MapDataWay
   SWIndexSet *extraNodes;
   const uint8_t *bytes;
   NSUInteger length;
-  NSUInteger pass, progress, lastProgress = -1;
+  NSUInteger pass;
 
   bounds.minLon = (int64_t) (NSMinX (realBounds) * 1.0e9);
   bounds.maxLon = (int64_t) (NSMaxX (realBounds) * 1.0e9);
@@ -395,14 +395,6 @@ struct MapDataWay
           OSMPBF__BlobHeader *blobHeader;
 
           pool = [NSAutoreleasePool new];
-
-          if (lastProgress != (progress = offset * 1000 / length))
-            {
-              fprintf (stderr, "\r%.1f%% (%lu nodes, %lu ways)", progress / 10.0,
-                       (unsigned long) matchingNodes.count, (unsigned long) matchingWays.count);
-
-              lastProgress = progress;
-            }
 
           headerSize = ntohl (*(int32_t *) (bytes + offset));
           offset += 4;
@@ -477,8 +469,6 @@ struct MapDataWay
             nodes = [NSMutableDictionary dictionaryWithCapacity:matchingNodes.count];
         }
     }
-
-  fprintf (stderr, "\n");
 
   [pool release];
 
