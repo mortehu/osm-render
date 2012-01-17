@@ -1,3 +1,5 @@
+#import <errno.h>
+
 #import <Foundation/NSArray.h>
 #import <Foundation/NSException.h>
 #import <Swanston/SWPath.h>

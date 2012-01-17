@@ -61,12 +61,12 @@
 
 - (NSDictionary *)directoryAttributes
 {
-  return [[NSFileManager defaultManager] attributesOfItemAtPath:base error:0];
+  return [[NSFileManager defaultManager] fileAttributesAtPath:base traverseLink:NO];
 }
 
 - (NSDictionary *)fileAttributes
 {
-  return [[NSFileManager defaultManager] attributesOfItemAtPath:[base stringByAppendingPathComponent:currentName] error:0];
+  return [[NSFileManager defaultManager] fileAttributesAtPath:[base stringByAppendingPathComponent:currentName] traverseLink:NO];
 }
 
 - (void)skipDescendents

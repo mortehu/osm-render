@@ -398,7 +398,8 @@ struct MapDataWay
 
           if (lastProgress != (progress = offset * 1000 / length))
             {
-              fprintf (stderr, "\r%.1f%% (%lu nodes, %lu ways)", progress / 10.0, matchingNodes.count, matchingWays.count);
+              fprintf (stderr, "\r%.1f%% (%lu nodes, %lu ways)", progress / 10.0,
+                       (unsigned long) matchingNodes.count, (unsigned long) matchingWays.count);
 
               lastProgress = progress;
             }
