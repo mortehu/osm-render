@@ -25,12 +25,32 @@ OsmRender_SOURCES = \
   Swanston/SWJSONStream.h \
   Swanston/SWIndexSet.h \
   Swanston/NSMutableArray+SWJSONStreamDelegate.h \
-  Swanston/SWConsumer.h \
+  Swanston/SWConsumer.h
+nodist_OsmRender_SOURCES = \
   Osm/fileformat.pb-c.c \
   Osm/osmformat.pb-c.c \
   Osm/osmformat.pb-c.h \
   Osm/fileformat.pb-c.h
 OsmRender_LDFLAGS = -lm -lz -lprotobuf-c $(PACKAGES_LIBS) $(GNUSTEP_LIBS)
+
+BUILT_SOURCES = \
+  Osm/fileformat.pb-c.c \
+  Osm/osmformat.pb-c.c \
+  Osm/osmformat.pb-c.h \
+  Osm/fileformat.pb-c.h
+CLEANFILES = \
+  Osm/fileformat.pb-c.c \
+  Osm/osmformat.pb-c.c \
+  Osm/osmformat.pb-c.h \
+  Osm/fileformat.pb-c.h
+
+Osm/fileformat.pb-c.c Osm/fileformat.pb-c.h: fileformat.proto
+	@mkdir -p Osm
+	protoc-c $< --c_out=Osm/
+
+Osm/osmformat.pb-c.c Osm/osmformat.pb-c.h: osmformat.proto
+	@mkdir -p Osm
+	protoc-c $< --c_out=Osm/
 
 EXTRA_DIST = cities.cfg options.cfg
 
