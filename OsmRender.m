@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <MapData.h>
+#import <Swanston/NSFileManager+SWOperations.h>
 #import <Swanston/SWCairo.h>
 #import <Swanston/SWJSONStream.h>
 #import <Swanston/SWPango.h>
@@ -819,12 +820,16 @@ NSString *
 OsmRenderFindMapFile (NSRect geoBounds)
 {
   NSAutoreleasePool *pool;
+  SWDirectoryEnumerator *direnum;
+  NSString *path;
   NSString *bestMatch = nil;
   double bestArea;
 
   pool = [NSAutoreleasePool new];
+
+  direnum = [[NSFileManager defaultManager] nonRecursiveEnumeratorAtPath:mapDataPath];
   
-  for (NSString *path in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:mapDataPath error:NULL])
+  while (0 != (path = [direnum nextObject]))
     {
       NSString *fullPath;
       MapData *mapData;

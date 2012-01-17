@@ -9,22 +9,24 @@ OsmRender_SOURCES = \
   MapData.m MapData.h \
   MapWay.m \
   NSData+SWZlib.m \
+  NSFileManager+SWOperations.m \
   NSMutableArray+SWJSONStreamDelegate.m \
   NSMutableDictionary+SWJSONStreamDelegate.m \
   SWCairo.m \
   SWIndexSet.m \
   SWJSONStream.m \
-  SWPath.m \
   SWPango.m \
-  Swanston/SWPango.h \
-  Swanston/SWCairo.h \
+  SWPath.m \
   Swanston/NSData+SWZlib.h \
+  Swanston/NSFileManager+SWOperations.h \
+  Swanston/NSMutableArray+SWJSONStreamDelegate.h \
   Swanston/NSMutableDictionary+SWJSONStreamDelegate.h \
+  Swanston/SWCairo.h \
+  Swanston/SWIndexSet.h \
+  Swanston/SWJSONStream.h \
+  Swanston/SWPango.h \
   Swanston/SWPath.h \
   Swanston/SWXMLParser.h \
-  Swanston/SWJSONStream.h \
-  Swanston/SWIndexSet.h \
-  Swanston/NSMutableArray+SWJSONStreamDelegate.h \
   Swanston/SWConsumer.h
 nodist_OsmRender_SOURCES = \
   Osm/fileformat.pb-c.c \
