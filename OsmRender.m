@@ -836,6 +836,9 @@ OsmRenderFindMapFile (NSRect geoBounds)
       NSRect mapBounds;
       NSRange range;
 
+      if (path.length < 8)
+        continue;
+
       range = [path rangeOfString:@".osm.pbf"
                           options:NSLiteralSearch
 			    range:NSMakeRange (path.length - 8, 8)];
@@ -867,8 +870,6 @@ OsmRenderFindMapFile (NSRect geoBounds)
 
   [bestMatch retain];
   [pool release];
-
-  NSLog (@"%@", bestMatch);
 
   return [bestMatch autorelease];
 }
@@ -906,8 +907,6 @@ main (int argc, char **argv)
       [way.path translate:NSMakePoint (-lonMin, -latMax)];
       [way.path scale:NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax))];
     }
-
-  NSLog (@"Got %lu ways", (unsigned long) ways.count);
 
   for (i = 0; i <= [neighborhoods count]; ++i)
     {
