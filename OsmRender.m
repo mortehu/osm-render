@@ -3,7 +3,6 @@
 #import <Swanston/NSFileManager+SWOperations.h>
 #import <Swanston/SWCairo.h>
 #import <Swanston/SWJSONStream.h>
-#import <Swanston/SWPango.h>
 #import <Swanston/SWPath.h>
 
 #import <assert.h>
@@ -25,9 +24,10 @@ static int print_help;
 static NSString *mapDataPath = @".";
 static NSString *prefix = @"output";
 static unsigned int imageWidth = 396, imageHeight = 396;
-static NSString *inactiveAreaLabelFont = @"Arial Bold 8";
-static NSString *activeAreaLabelFont = @"Arial Bold 8";
-static NSString *landmarkLabelFont = @"Arial 8";
+static NSString *inactiveAreaLabelFontName = @"Arial Bold 8";
+static NSString *activeAreaLabelFontName = @"Arial Bold 8";
+static NSString *landmarkLabelFontName = @"Arial 8";
+static int fontSize = 11;
 static uint32_t landColor = 0xfff6f5f2;
 static uint32_t parkColor = 0xffc9dfaf;
 static uint32_t inactiveAreaColor = 0xffdee9f1;
@@ -348,6 +348,23 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
   NSUInteger i;
   NSPoint scale;
 
+  SWFont *inactiveAreaLabelFont;
+  SWFont *activeAreaLabelFont;
+  SWFont *landmarkLabelFont;
+
+  if (fontSize >= 10)
+    {
+      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
+      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
+      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal];
+    }
+  else
+    {
+      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
+      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
+      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal hintingStyle:SWHintingStyleLight];
+    }
+
   scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
 
   coastPaths = [[NSMutableArray alloc] init];
@@ -483,10 +500,11 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
 
   for (neighborhood in neighborhoods)
     {
-      SWPangoLayout *text;
-      NSRect textRect;
-      NSSize textSize;
+      SWFont *font;
+      SWFontGlyph *glyph;
+      SWCairo *textSurface;
       NSPoint textCenter;
+      NSRect textRect;
 
       if (neighborhood->type == 2)
         {
@@ -495,18 +513,21 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
           continue;
         }
 
-      text = [SWPangoLayout layoutWithCairo:cairo];
-
-      [text setFontFromString:(i == activeArea) ? activeAreaLabelFont : inactiveAreaLabelFont];
-      [text setAlignment:PANGO_ALIGN_CENTER];
-      [text setText:neighborhood->name];
-
-      textSize = text.size;
       textCenter = neighborhood->center;
       OsmRenderTransformPoint (&textCenter);
-      textRect = NSMakeRect (textCenter.x - textSize.width * 0.5,
-                             textCenter.y - textSize.height * 0.5,
-                             textSize.width, textSize.height);
+
+      if (i == activeArea)
+        font = activeAreaLabelFont;
+      else
+        font = inactiveAreaLabelFont;
+
+      glyph = [font glyphForLines:[neighborhood->name componentsSeparatedByString:@"\n"]];
+
+      textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
+
+      textRect = NSMakeRect (textCenter.x - glyph->width * 0.5,
+                             textCenter.y - glyph->height * 0.5,
+                             glyph->width, glyph->height);
 
       if (textRect.origin.x < 2)
         textRect.origin.x = 2;
@@ -524,13 +545,11 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
 
       if (i == activeArea && hover)
         {
-          NSRect textBounds;
+          NSRect backgroundRect;
 
-          textBounds = NSOffsetRect (textRect, -3.0, -3.0);
-          textBounds.size.width += 5.0;
-          textBounds.size.height += 5.0;
+          backgroundRect = NSInsetRect (textRect, -3.0, -3.0);
 
-          [cairo addRectangle:textBounds
+          [cairo addRectangle:backgroundRect
                        radius:4];
           [cairo setColor:activeAreaLabelBackgroundColor];
           [cairo fill];
@@ -540,9 +559,10 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
       else
         [cairo setColor:inactiveAreaLabelColor];
 
-      cairo_move_to (cairo.cairo, textRect.origin.x, textRect.origin.y);
+      cairo_mask_surface (cairo.cairo, textSurface.surface,
+                          textRect.origin.x, textRect.origin.y);
 
-      [text paint];
+      [textSurface release];
 
       i++;
     }
@@ -551,34 +571,28 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
 
   for (NSDictionary *landmark in landmarks)
     {
-      SWPangoLayout *text;
-      NSSize textSize;
+      SWFontGlyph *glyph;
+      SWCairo *textSurface;
       NSPoint position;
 
       if (![[landmark objectForKey:@"display"] boolValue])
         continue;
-
-      text = [SWPangoLayout layoutWithCairo:cairo];
-
-      [cairo setColor:inactiveAreaLabelColor];
-
-      [text setFontFromString:landmarkLabelFont];
-      [text setAlignment:PANGO_ALIGN_CENTER];
-      [text setText:[landmark objectForKey:@"label"]];
-
-      textSize = text.size;
 
       position.x = [[landmark objectForKey:@"lon"] doubleValue];
       position.y = [[landmark objectForKey:@"lat"] doubleValue];
 
       OsmRenderTransformPoint (&position);
 
-      cairo_move_to (cairo.cairo,
-                     position.x + landmarkBulletSize,
-                     position.y - textSize.height * 0.5);
+      glyph = [landmarkLabelFont glyphForLines:[[landmark objectForKey:@"label"] componentsSeparatedByString:@"\n"]];
+
+      textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
 
       [cairo setColor:landmarkLabelColor];
-      [text paint];
+      cairo_mask_surface (cairo.cairo, textSurface.surface,
+                          position.x + landmarkBulletSize, position.y - glyph->height / 2);
+
+      [textSurface release];
+
 
       [cairo addRectangle:NSMakeRect (position.x - landmarkBulletSize / 2,
                                       position.y - landmarkBulletSize / 2,
@@ -606,7 +620,7 @@ OsmRenderParseOptions (int argc, char **argv)
 
         case 'A':
 
-          activeAreaLabelFont = [NSString stringWithUTF8String:optarg];
+          activeAreaLabelFontName = [NSString stringWithUTF8String:optarg];
 
           break;
 
@@ -630,7 +644,7 @@ OsmRenderParseOptions (int argc, char **argv)
 
         case 'D':
 
-          inactiveAreaLabelFont = [NSString stringWithUTF8String:optarg];
+          inactiveAreaLabelFontName = [NSString stringWithUTF8String:optarg];
 
           break;
 
@@ -648,7 +662,7 @@ OsmRenderParseOptions (int argc, char **argv)
 
         case 'F':
 
-          landmarkLabelFont = [NSString stringWithUTF8String:optarg];
+          landmarkLabelFontName = [NSString stringWithUTF8String:optarg];
 
           break;
 
@@ -943,9 +957,8 @@ main (int argc, char **argv)
   OsmRender (ways, [NSString stringWithFormat:@"%@.png", prefix], [neighborhoods count], NO);
 
   imageWidth = 290, imageHeight = 290;
-  inactiveAreaLabelFont = @"Arial Bold 6";
-  activeAreaLabelFont = @"Arial Bold 6";
-  landmarkLabelFont = @"Arial 6";
+  fontSize = 9;
+  landmarkBulletSize = 5;
 
   for (i = 0; i < [neighborhoods count]; ++i)
     {
