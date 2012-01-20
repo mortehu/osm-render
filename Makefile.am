@@ -7,33 +7,13 @@ AM_CFLAGS = -Wall -g
 OsmRender_SOURCES = \
   OsmRender.m \
   MapData.m MapData.h \
-  MapWay.m \
-  NSData+SWZlib.m \
-  NSFileManager+SWOperations.m \
-  NSMutableArray+SWJSONStreamDelegate.m \
-  NSMutableDictionary+SWJSONStreamDelegate.m \
-  SWCairo.m \
-  SWIndexSet.m \
-  SWJSONStream.m \
-  SWPango.m \
-  SWPath.m \
-  Swanston/NSData+SWZlib.h \
-  Swanston/NSFileManager+SWOperations.h \
-  Swanston/NSMutableArray+SWJSONStreamDelegate.h \
-  Swanston/NSMutableDictionary+SWJSONStreamDelegate.h \
-  Swanston/SWCairo.h \
-  Swanston/SWIndexSet.h \
-  Swanston/SWJSONStream.h \
-  Swanston/SWPango.h \
-  Swanston/SWPath.h \
-  Swanston/SWXMLParser.h \
-  Swanston/SWConsumer.h
+  MapWay.m
 nodist_OsmRender_SOURCES = \
   Osm/fileformat.pb-c.c \
   Osm/osmformat.pb-c.c \
   Osm/osmformat.pb-c.h \
   Osm/fileformat.pb-c.h
-OsmRender_LDFLAGS = -lm -lz -lprotobuf-c $(PACKAGES_LIBS) $(GNUSTEP_LIBS)
+OsmRender_LDFLAGS = -lm -lz -lprotobuf-c -lswanston $(PACKAGES_LIBS) $(GNUSTEP_LIBS)
 
 BUILT_SOURCES = \
   Osm/fileformat.pb-c.c \
