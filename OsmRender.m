@@ -2,6 +2,8 @@
 #import <MapData.h>
 #import <Swanston/NSFileManager+SWOperations.h>
 #import <Swanston/SWCairo.h>
+#import <Swanston/SWHash.h>
+#import <Swanston/SWImage.h>
 #import <Swanston/SWJSONStream.h>
 #import <Swanston/SWPath.h>
 
@@ -29,9 +31,10 @@ static NSString *activeAreaLabelFontName = @"Arial Bold 8";
 static NSString *landmarkLabelFontName = @"Arial 8";
 static int fontSize = 11;
 static uint32_t landColor = 0xfff6f5f2;
-static uint32_t parkColor = 0xffc9dfaf;
+static uint32_t parkColor = 0xffe2eed4;
 static uint32_t inactiveAreaColor = 0xffdee9f1;
 static uint32_t activeAreaColor = 0xfffec801;
+static uint32_t hoverAreaColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffdee9f1 >> 1) & 0x7f7f7f7f);
 static uint32_t waterColor = 0xffaec6e1;
 static uint32_t inactiveAreaLabelColor = 0xff4c4c4c;
 static uint32_t activeAreaLabelColor = 0xffffffff;
@@ -40,6 +43,8 @@ static uint32_t landmarkLabelColor = 0xff7c126a;
 static uint32_t landmarkBulletSize = 6;
 static uint32_t landmarkBulletColor = 0xff7c126a;
 static int dummyRun = 0;
+
+static SWCairo *treeIcon;
 
 static struct option long_options[] =
 {
@@ -83,6 +88,42 @@ static double lonMin, lonMax;
 static double latMin, latMax;
 static NSMutableArray *neighborhoods;
 static NSArray *landmarks;
+
+static SWCairo *
+OsmRenderLoadImage (NSString *path)
+{
+  NSFileHandle *file;
+  NSData *data;
+  SWImageDecoder *imageDecoder;
+  SWImage *image;
+  SWCairo *result;
+
+  file = [NSFileHandle fileHandleForReadingAtPath:path];
+  data = [file readDataToEndOfFile];
+  [file closeFile];
+
+  image = [SWImage new];
+
+  if (!(imageDecoder = [[SWImageDecoder alloc] initWithDelegate:image]))
+    goto fail;
+
+  [imageDecoder consumeData:data];
+  [imageDecoder consumeEnd];
+  [imageDecoder release];
+
+  result = [[SWCairo alloc] initWithImage:image];
+
+  [image release];
+
+  return result;
+
+fail:
+
+  [imageDecoder release];
+  [image release];
+
+  return NULL;
+}
 
 double
 ClockwiseBoxPosition (NSPoint to, NSRect bounds)
@@ -336,34 +377,15 @@ OsmRenderTransformPoint (NSPoint *point)
   point->y = round ((point->y - latMax) * imageHeight / (latMin - latMax));
 }
 
-void
-OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hover)
+SWCairo *
+OsmRenderMap (NSArray *ways)
 {
   NSRect bounds;
   NSMutableArray *coastPaths;
   SWCairo *cairo;
   SWPath *path;
   MapWay *way;
-  OsmRenderNeighborhood *neighborhood;
-  NSUInteger i;
   NSPoint scale;
-
-  SWFont *inactiveAreaLabelFont;
-  SWFont *activeAreaLabelFont;
-  SWFont *landmarkLabelFont;
-
-  if (fontSize >= 10)
-    {
-      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
-      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
-      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal];
-    }
-  else
-    {
-      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
-      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
-      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal hintingStyle:SWHintingStyleLight];
-    }
 
   scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
 
@@ -441,6 +463,86 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
         }
     }
 
+  return [cairo autorelease];
+}
+
+SWCairo *
+OsmRenderMapCached (NSArray *ways)
+{
+  SWCairo *result;
+  SWSHA256 *hash;
+  NSString *path;
+  BOOL isDirectory;
+
+  hash = [SWSHA256 new];
+
+  [hash addBytes:&latMin length:sizeof (latMin)];
+  [hash addBytes:&lonMin length:sizeof (lonMin)];
+  [hash addBytes:&latMax length:sizeof (latMax)];
+  [hash addBytes:&lonMax length:sizeof (lonMax)];
+  [hash addBytes:&imageWidth length:sizeof (imageWidth)];
+  [hash addBytes:&imageHeight length:sizeof (imageHeight)];
+  [hash finish];
+
+  path = [@"/var/lib/osm/cached-images" stringByAppendingPathComponent:hash.stringForBase16Hash];
+
+  if ([[NSFileManager defaultManager] fileExistsAtPath:path
+                                           isDirectory:&isDirectory]
+      && !isDirectory)
+    {
+      return OsmRenderLoadImage (path);
+    }
+
+  if (!ways)
+    return nil;
+
+  result = OsmRenderMap (ways);
+
+  if (!dummyRun)
+    [result writeToPNG:path];
+
+  [hash release];
+
+  return result;
+}
+
+void
+OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL hover)
+{
+  NSRect bounds;
+  SWCairo *cairo;
+  OsmRenderNeighborhood *neighborhood;
+  NSUInteger i;
+  NSPoint scale;
+
+  SWFont *inactiveAreaLabelFont;
+  SWFont *activeAreaLabelFont;
+  SWFont *landmarkLabelFont;
+
+  if (fontSize >= 11)
+    {
+      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
+      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold];
+      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal];
+    }
+  else
+    {
+      inactiveAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
+      activeAreaLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleBold hintingStyle:SWHintingStyleLight];
+      landmarkLabelFont = [SWFont fontWithName:@"Arial" size:fontSize style:SWFontStyleNormal hintingStyle:SWHintingStyleLight];
+    }
+
+  scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
+
+  cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
+                                 format:CAIRO_FORMAT_RGB24];
+
+  bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
+
+  [cairo setSurface:map
+                 at:NSMakePoint (0, 0)];
+  [cairo paint];
+
   /* Add neighborhoods */
 
     {
@@ -471,8 +573,13 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
                 withScale:scale
                    closed:YES];
 
-          if (i == activeArea && !hover)
-            [source setColor:activeAreaColor];
+          if (i == activeArea)
+            {
+              if (hover)
+                [source setColor:hoverAreaColor];
+              else
+                [source setColor:activeAreaColor];
+            }
           else
             {
               switch (neighborhood->type)
@@ -506,15 +613,20 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
       NSPoint textCenter;
       NSRect textRect;
 
+      textCenter = neighborhood->center;
+      OsmRenderTransformPoint (&textCenter);
+
       if (neighborhood->type == 2)
         {
+          [cairo setSurface:treeIcon
+                         at:NSMakePoint (textCenter.x - round (treeIcon.size.width * 0.5),
+                                         textCenter.y - round (treeIcon.size.height * 0.5))];
+          [cairo paint];
+
           i++;
 
           continue;
         }
-
-      textCenter = neighborhood->center;
-      OsmRenderTransformPoint (&textCenter);
 
       if (i == activeArea)
         font = activeAreaLabelFont;
@@ -555,12 +667,27 @@ OsmRender (NSArray *ways, NSString *outputPath, NSUInteger activeArea, BOOL hove
           [cairo fill];
 
           [cairo setColor:activeAreaLabelColor];
+          [cairo maskSurface:textSurface
+                          at:textRect.origin];
         }
       else
-        [cairo setColor:inactiveAreaLabelColor];
+        {
+          if (i == activeArea)
+            {
+              SWCairo *outlineSurface;
 
-      cairo_mask_surface (cairo.cairo, textSurface.surface,
-                          textRect.origin.x, textRect.origin.y);
+              outlineSurface = [textSurface outlineSurface];
+
+              [cairo setColor:0xcfffffff];
+              [cairo maskSurface:outlineSurface
+                              at:NSMakePoint (textRect.origin.x - 1, textRect.origin.y - 1)];
+            }
+
+          [cairo setColor:inactiveAreaLabelColor];
+          [cairo maskSurface:textSurface
+                          at:textRect.origin];
+        }
+
 
       [textSurface release];
 
@@ -741,6 +868,7 @@ OsmRenderParseOptions (int argc, char **argv)
               "      --size=PIXELS          width of output image\n"
               "      --prefix=STRING        prefix for output file names\n"
               "      --map-path=PATH        path containing .osm.pbf files\n"
+              "      --dummy-run            do not render the map backdrop\n"
               "      --help     display this help and exit\n"
               "      --version  display version information\n"
               "\n"
@@ -793,6 +921,10 @@ OsmRenderLoadNeighborhoods (NSString *path)
     errx (EXIT_FAILURE, "%s is missing an areaBox",
           [path UTF8String]);
 
+  if (areaBox.count != 4)
+    errx (EXIT_FAILURE, "%s: areaBox is not exactly 4 elements",
+          [path UTF8String]);
+
   latMin = [[areaBox objectAtIndex:0] doubleValue];
   lonMin = [[areaBox objectAtIndex:1] doubleValue];
   latMax = [[areaBox objectAtIndex:2] doubleValue];
@@ -823,6 +955,7 @@ OsmRenderLoadNeighborhoods (NSString *path)
       NSPoint point;
       NSString *vertex;
       OsmRenderNeighborhood *neighborhood;
+      NSArray *center;
 
       neighborhood = [OsmRenderNeighborhood new];
       neighborhood->path = [SWPath new];
@@ -838,8 +971,13 @@ OsmRenderLoadNeighborhoods (NSString *path)
 
       neighborhood->name = [[area objectForKey:@"label"] retain];
 
-      neighborhood->center.x = [[[area objectForKey:@"center"] objectAtIndex:1] doubleValue];
-      neighborhood->center.y = [[[area objectForKey:@"center"] objectAtIndex:0] doubleValue];
+      center = [area objectForKey:@"center"];
+
+      if (center.count != 2)
+        errx (EXIT_FAILURE, "%s: center point is not exactly 2 elements", [path UTF8String]);
+
+      neighborhood->center.x = [[center objectAtIndex:1] doubleValue];
+      neighborhood->center.y = [[center objectAtIndex:0] doubleValue];
 
       neighborhood->type = [[area objectForKey:@"type"] intValue];
 
@@ -862,7 +1000,7 @@ OsmRenderFindMapFile (NSRect geoBounds)
   pool = [NSAutoreleasePool new];
 
   direnum = [[NSFileManager defaultManager] nonRecursiveEnumeratorAtPath:mapDataPath];
-  
+
   while (0 != (path = [direnum nextObject]))
     {
       NSString *fullPath;
@@ -914,7 +1052,8 @@ main (int argc, char **argv)
   NSString *mapFilePath;
   NSAutoreleasePool *pool;
   MapData *mapData;
-  NSArray *ways;
+  SWCairo *mapSurface;
+  NSArray *ways = nil;
   NSRect geoBounds;
   NSUInteger i;
 
@@ -925,6 +1064,8 @@ main (int argc, char **argv)
   if (optind + 1 != argc)
     errx (EX_USAGE, "Usage: %s [OPTION]... <FILE>", argv[0]);
 
+  treeIcon = OsmRenderLoadImage (@"park.png");
+
   OsmRenderLoadNeighborhoods ([NSString stringWithUTF8String:argv[optind]]);
 
   geoBounds = NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin);
@@ -934,13 +1075,20 @@ main (int argc, char **argv)
   if (!(mapData = [[MapData alloc] initWithPath:mapFilePath]))
     errx (EXIT_FAILURE, "Failed to load map data");
 
-  if (!dummyRun)
-    ways = [mapData waysInRect:geoBounds];
-  else
-    ways = [NSArray array];
+  mapSurface = OsmRenderMapCached (nil);
 
-  for (MapWay *way in ways)
-    [way.path translate:NSMakePoint (-lonMin, -latMax)];
+  if (!mapSurface)
+    {
+      if (!dummyRun)
+        ways = [mapData waysInRect:geoBounds];
+      else
+        ways = [NSArray array];
+
+      for (MapWay *way in ways)
+        [way.path translate:NSMakePoint (-lonMin, -latMax)];
+
+      mapSurface = OsmRenderMapCached (ways);
+    }
 
   for (i = 0; i < [neighborhoods count]; ++i)
     {
@@ -950,15 +1098,30 @@ main (int argc, char **argv)
       pathHover = [NSString stringWithFormat:@"%@-%02lu-hover.png", prefix, (unsigned long) i];
       pathHighlight = [NSString stringWithFormat:@"%@-%02lu.png", prefix, (unsigned long) i];
 
-      OsmRender (ways, pathHover, i, YES);
-      OsmRender (ways, pathHighlight, i, NO);
+      OsmRenderAreas (mapSurface, pathHover, i, YES);
+      OsmRenderAreas (mapSurface, pathHighlight, i, NO);
     }
 
-  OsmRender (ways, [NSString stringWithFormat:@"%@.png", prefix], [neighborhoods count], NO);
+  OsmRenderAreas (mapSurface, [NSString stringWithFormat:@"%@.png", prefix], [neighborhoods count], NO);
 
   imageWidth = 290, imageHeight = 290;
-  fontSize = 9;
+  fontSize = 10;
   landmarkBulletSize = 5;
+
+  mapSurface = OsmRenderMapCached (ways);
+
+  if (!mapSurface)
+    {
+      if (!dummyRun)
+        ways = [mapData waysInRect:geoBounds];
+      else
+        ways = [NSArray array];
+
+      for (MapWay *way in ways)
+        [way.path translate:NSMakePoint (-lonMin, -latMax)];
+
+      mapSurface = OsmRenderMapCached (ways);
+    }
 
   for (i = 0; i < [neighborhoods count]; ++i)
     {
@@ -966,7 +1129,7 @@ main (int argc, char **argv)
 
       pathCallout = [NSString stringWithFormat:@"%@-%02lu-callout.png", prefix, (unsigned long) i];
 
-      OsmRender (ways, pathCallout, i, NO);
+      OsmRenderAreas (mapSurface, pathCallout, i, NO);
     }
 
   [pool release];
