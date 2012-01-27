@@ -38,11 +38,12 @@ static uint32_t hoverAreaColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffdee9f1
 static uint32_t waterColor = 0xffaec6e1;
 static uint32_t inactiveAreaLabelColor = 0xff4c4c4c;
 static uint32_t activeAreaLabelColor = 0xffffffff;
-static uint32_t activeAreaLabelBackgroundColor = 0x7f000000;
+static uint32_t activeAreaLabelBackgroundColor = 0x00000000;
 static uint32_t landmarkLabelColor = 0xff7c126a;
 static uint32_t landmarkBulletSize = 6;
 static uint32_t landmarkBulletColor = 0xff7c126a;
 static int dummyRun = 0;
+static int doOutline = 0;
 
 static SWCairo *treeIcon;
 
@@ -672,7 +673,7 @@ OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL 
         }
       else
         {
-          if (i == activeArea)
+          if (i == activeArea && doOutline)
             {
               SWCairo *outlineSurface;
 
