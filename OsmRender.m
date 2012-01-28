@@ -24,6 +24,7 @@ static int print_version;
 static int print_help;
 
 static NSString *mapDataPath = @".";
+static NSString *mapFilePath = nil;
 static NSString *prefix = @"output";
 static unsigned int imageWidth = 396, imageHeight = 396;
 static NSString *inactiveAreaLabelFontName = @"Arial Bold 8";
@@ -35,15 +36,17 @@ static uint32_t parkColor = 0xffe2eed4;
 static uint32_t inactiveAreaColor = 0xffdee9f1;
 static uint32_t activeAreaColor = 0xfffec801;
 static uint32_t hoverAreaColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffdee9f1 >> 1) & 0x7f7f7f7f);
+static uint32_t hoverParkColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffe2eed4 >> 1) & 0x7f7f7f7f);
 static uint32_t waterColor = 0xffaec6e1;
 static uint32_t inactiveAreaLabelColor = 0xff4c4c4c;
 static uint32_t activeAreaLabelColor = 0xffffffff;
-static uint32_t activeAreaLabelBackgroundColor = 0x00000000;
+static uint32_t activeAreaLabelBackgroundColor = 0x7f000000;
 static uint32_t landmarkLabelColor = 0xff7c126a;
 static uint32_t landmarkBulletSize = 6;
 static uint32_t landmarkBulletColor = 0xff7c126a;
 static int dummyRun = 0;
-static int doOutline = 0;
+static int verbose = 0;
+static int noCache = 0;
 
 static SWCairo *treeIcon;
 
@@ -51,8 +54,8 @@ static struct option long_options[] =
 {
     { "active-area-font",      required_argument, 0, 'A' },
     { "active-area-font-color", required_argument, 0, 'a' },
+    { "active-area-font-bgcolor",   required_argument, 0, 'C' },
     { "active-area-color",     required_argument, 0, 'B' },
-    { "active-area-bgcolor",   required_argument, 0, 'C' },
     { "inactive-area-font",    required_argument, 0, 'D' },
     { "inactive-area-font-color",    required_argument, 0, 'd' },
     { "inactive-area-color",   required_argument, 0, 'E' },
@@ -62,10 +65,15 @@ static struct option long_options[] =
     { "land-color",            required_argument, 0, 'I' },
     { "water-color",           required_argument, 0, 'J' },
     { "park-color",            required_argument, 0, 'K' },
+    { "hover-area-color",      required_argument, 0, 'L' },
+    { "hover-park-color",      required_argument, 0, 'M' },
     { "size",      required_argument, 0, 's' },
     { "prefix",    required_argument, 0, 'p' },
-    { "map-path",  required_argument, 0, 'm' },
+    { "map-directory",  required_argument, 0, 'm' },
+    { "map-file",  required_argument, 0, 'n' },
     { "dummy-run",     no_argument, &dummyRun, 1 },
+    { "verbose",     no_argument, &verbose, 1 },
+    { "no-cache",     no_argument, &noCache, 1 },
     { "version",   no_argument, &print_version, 1 },
     { "help",      no_argument, &print_help,    1 },
     { 0, 0, 0, 0 }
@@ -483,12 +491,16 @@ OsmRenderMapCached (NSArray *ways)
   [hash addBytes:&lonMax length:sizeof (lonMax)];
   [hash addBytes:&imageWidth length:sizeof (imageWidth)];
   [hash addBytes:&imageHeight length:sizeof (imageHeight)];
+  [hash addBytes:&waterColor length:sizeof (waterColor)];
+  [hash addBytes:&landColor length:sizeof (landColor)];
+  [hash addBytes:&parkColor length:sizeof (parkColor)];
   [hash finish];
 
   path = [@"/var/lib/osm/cached-images" stringByAppendingPathComponent:hash.stringForBase16Hash];
 
-  if ([[NSFileManager defaultManager] fileExistsAtPath:path
-                                           isDirectory:&isDirectory]
+  if (!noCache
+      && [[NSFileManager defaultManager] fileExistsAtPath:path
+                                              isDirectory:&isDirectory]
       && !isDirectory)
     {
       return OsmRenderLoadImage (path);
@@ -507,8 +519,17 @@ OsmRenderMapCached (NSArray *ways)
   return result;
 }
 
-void
-OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL hover)
+enum OsmRenderMode
+{
+  OSM_RENDER_BASE,
+  OSM_RENDER_HOVER,
+  OSM_RENDER_ACTIVE,
+  OSM_RENDER_CALLOUT,
+  OSM_RENDER_LABELS
+};
+
+SWCairo *
+OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMode)
 {
   NSRect bounds;
   SWCairo *cairo;
@@ -536,18 +557,17 @@ OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL 
   scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
 
   cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
-                                 format:CAIRO_FORMAT_RGB24];
+                                 format:(renderMode == OSM_RENDER_LABELS) ? CAIRO_FORMAT_ARGB32 : CAIRO_FORMAT_RGB24];
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
 
-  [cairo setSurface:map
-                 at:NSMakePoint (0, 0)];
-  [cairo paint];
-
-  /* Add neighborhoods */
-
+  if (renderMode != OSM_RENDER_LABELS)
     {
       SWCairo *mask, *source;
+
+      [cairo setSurface:map
+                     at:NSMakePoint (0, 0)];
+      [cairo paint];
 
       mask = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
                                     format:CAIRO_FORMAT_A8];
@@ -555,9 +575,12 @@ OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL 
                                       format:CAIRO_FORMAT_RGB24];
 
       for (neighborhood in neighborhoods)
-        [mask addPath:neighborhood->path
-            withScale:scale
-               closed:YES];
+        {
+          [mask addPath:neighborhood->path
+              withScale:scale
+                 closed:YES];
+        }
+
       [mask fill];
 
       cairo_set_operator ([mask cairo], CAIRO_OPERATOR_DEST_OUT);
@@ -574,20 +597,42 @@ OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL 
                 withScale:scale
                    closed:YES];
 
-          if (i == activeArea)
+          switch (neighborhood->type)
             {
-              if (hover)
-                [source setColor:hoverAreaColor];
-              else
-                [source setColor:activeAreaColor];
+            case 2:  [source setColor:parkColor]; break;
+            default: [source setColor:inactiveAreaColor];
             }
-          else
+
+          switch (renderMode)
             {
-              switch (neighborhood->type)
+            case OSM_RENDER_BASE:
+
+              break;
+
+            case OSM_RENDER_HOVER:
+
+              if (i == activeArea)
                 {
-                case 2:  [source setColor:parkColor]; break;
-                default: [source setColor:inactiveAreaColor];
+                  switch (neighborhood->type)
+                    {
+                    case 2:  [source setColor:hoverParkColor]; break;
+                    default: [source setColor:hoverAreaColor]; break;
+                    }
                 }
+
+              break;
+
+            case OSM_RENDER_ACTIVE:
+            case OSM_RENDER_CALLOUT:
+
+              if (i == activeArea)
+                [source setColor:activeAreaColor];
+
+              break;
+
+            default:
+
+              ;
             }
 
           [source fill];
@@ -604,133 +649,125 @@ OsmRenderAreas (SWCairo *map, NSString *outputPath, NSUInteger activeArea, BOOL 
       [mask release];
     }
 
-  i = 0;
-
-  for (neighborhood in neighborhoods)
+  if (renderMode == OSM_RENDER_LABELS
+      || renderMode == OSM_RENDER_CALLOUT)
     {
-      SWFont *font;
-      SWFontGlyph *glyph;
-      SWCairo *textSurface;
-      NSPoint textCenter;
-      NSRect textRect;
+      i = 0;
 
-      textCenter = neighborhood->center;
-      OsmRenderTransformPoint (&textCenter);
-
-      if (neighborhood->type == 2)
+      for (neighborhood in neighborhoods)
         {
-          [cairo setSurface:treeIcon
-                         at:NSMakePoint (textCenter.x - round (treeIcon.size.width * 0.5),
-                                         textCenter.y - round (treeIcon.size.height * 0.5))];
-          [cairo paint];
+          SWFont *font;
+          SWFontGlyph *glyph;
+          SWCairo *textSurface;
+          NSPoint textCenter;
+          NSRect textRect;
 
-          i++;
+          textCenter = neighborhood->center;
+          OsmRenderTransformPoint (&textCenter);
 
-          continue;
-        }
-
-      if (i == activeArea)
-        font = activeAreaLabelFont;
-      else
-        font = inactiveAreaLabelFont;
-
-      glyph = [font glyphForLines:[neighborhood->name componentsSeparatedByString:@"\n"]];
-
-      textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
-
-      textRect = NSMakeRect (textCenter.x - glyph->width * 0.5,
-                             textCenter.y - glyph->height * 0.5,
-                             glyph->width, glyph->height);
-
-      if (textRect.origin.x < 2)
-        textRect.origin.x = 2;
-
-      if (textRect.origin.y < 2)
-        textRect.origin.y = 2;
-
-      if (NSMaxX (textRect) > imageWidth - 2)
-        textRect.origin.x = imageWidth - textRect.size.width - 2;
-
-      if (NSMaxY (textRect) > imageHeight - 2)
-        textRect.origin.y = imageHeight - textRect.size.height - 2;
-
-      textRect = NSIntegralRect (textRect);
-
-      if (i == activeArea && hover)
-        {
-          NSRect backgroundRect;
-
-          backgroundRect = NSInsetRect (textRect, -3.0, -3.0);
-
-          [cairo addRectangle:backgroundRect
-                       radius:4];
-          [cairo setColor:activeAreaLabelBackgroundColor];
-          [cairo fill];
-
-          [cairo setColor:activeAreaLabelColor];
-          [cairo maskSurface:textSurface
-                          at:textRect.origin];
-        }
-      else
-        {
-          if (i == activeArea && doOutline)
+          if (neighborhood->type == 2)
             {
-              SWCairo *outlineSurface;
+              [cairo setSurface:treeIcon
+                             at:NSMakePoint (textCenter.x - round (treeIcon.size.width * 0.5),
+                                             textCenter.y - round (treeIcon.size.height * 0.5))];
+              [cairo paint];
 
-              outlineSurface = [textSurface outlineSurface];
+              i++;
 
-              [cairo setColor:0xcfffffff];
-              [cairo maskSurface:outlineSurface
-                              at:NSMakePoint (textRect.origin.x - 1, textRect.origin.y - 1)];
+              continue;
             }
 
-          [cairo setColor:inactiveAreaLabelColor];
-          [cairo maskSurface:textSurface
-                          at:textRect.origin];
+          if (i == activeArea)
+            font = activeAreaLabelFont;
+          else
+            font = inactiveAreaLabelFont;
+
+          glyph = [font glyphForLines:[neighborhood->name componentsSeparatedByString:@"\n"]];
+
+          textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
+
+          textRect = NSMakeRect (textCenter.x - glyph->width * 0.5,
+                                 textCenter.y - glyph->height * 0.5,
+                                 glyph->width, glyph->height);
+
+          if (textRect.origin.x < 2)
+            textRect.origin.x = 2;
+
+          if (textRect.origin.y < 2)
+            textRect.origin.y = 2;
+
+          if (NSMaxX (textRect) > imageWidth - 2)
+            textRect.origin.x = imageWidth - textRect.size.width - 2;
+
+          if (NSMaxY (textRect) > imageHeight - 2)
+            textRect.origin.y = imageHeight - textRect.size.height - 2;
+
+          textRect = NSIntegralRect (textRect);
+
+          if (i == activeArea && renderMode == OSM_RENDER_HOVER)
+            {
+              NSRect backgroundRect;
+
+              backgroundRect = NSInsetRect (textRect, -3.0, -3.0);
+
+              [cairo addRectangle:backgroundRect
+                           radius:4];
+              [cairo setColor:activeAreaLabelBackgroundColor];
+              [cairo fill];
+
+              [cairo setColor:activeAreaLabelColor];
+              [cairo maskSurface:textSurface
+                              at:textRect.origin];
+            }
+          else
+            {
+              [cairo setColor:inactiveAreaLabelColor];
+              [cairo maskSurface:textSurface
+                              at:textRect.origin];
+            }
+
+
+          [textSurface release];
+
+          i++;
         }
 
+      /* Add landmarks */
 
-      [textSurface release];
+      for (NSDictionary *landmark in landmarks)
+        {
+          SWFontGlyph *glyph;
+          SWCairo *textSurface;
+          NSPoint position;
 
-      i++;
+          if (![[landmark objectForKey:@"display"] boolValue])
+            continue;
+
+          position.x = [[landmark objectForKey:@"lon"] doubleValue];
+          position.y = [[landmark objectForKey:@"lat"] doubleValue];
+
+          OsmRenderTransformPoint (&position);
+
+          glyph = [landmarkLabelFont glyphForLines:[[landmark objectForKey:@"label"] componentsSeparatedByString:@"\n"]];
+
+          textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
+
+          [cairo setColor:landmarkLabelColor];
+          cairo_mask_surface (cairo.cairo, textSurface.surface,
+                              position.x + landmarkBulletSize, position.y - glyph->height / 2);
+
+          [textSurface release];
+
+
+          [cairo addRectangle:NSMakeRect (position.x - landmarkBulletSize / 2,
+                                          position.y - landmarkBulletSize / 2,
+                                          landmarkBulletSize, landmarkBulletSize)];
+          [cairo setColor:landmarkBulletColor];
+          [cairo fill];
+        }
     }
 
-  /* Add landmarks */
-
-  for (NSDictionary *landmark in landmarks)
-    {
-      SWFontGlyph *glyph;
-      SWCairo *textSurface;
-      NSPoint position;
-
-      if (![[landmark objectForKey:@"display"] boolValue])
-        continue;
-
-      position.x = [[landmark objectForKey:@"lon"] doubleValue];
-      position.y = [[landmark objectForKey:@"lat"] doubleValue];
-
-      OsmRenderTransformPoint (&position);
-
-      glyph = [landmarkLabelFont glyphForLines:[[landmark objectForKey:@"label"] componentsSeparatedByString:@"\n"]];
-
-      textSurface = [[SWCairo alloc] initWithFontGlyph:glyph];
-
-      [cairo setColor:landmarkLabelColor];
-      cairo_mask_surface (cairo.cairo, textSurface.surface,
-                          position.x + landmarkBulletSize, position.y - glyph->height / 2);
-
-      [textSurface release];
-
-
-      [cairo addRectangle:NSMakeRect (position.x - landmarkBulletSize / 2,
-                                      position.y - landmarkBulletSize / 2,
-                                      landmarkBulletSize, landmarkBulletSize)];
-      [cairo setColor:landmarkBulletColor];
-      [cairo fill];
-    }
-
-  [cairo writeToPNG:outputPath];
-  [cairo release];
+  return [cairo autorelease];
 }
 
 static void
@@ -824,6 +861,18 @@ OsmRenderParseOptions (int argc, char **argv)
 
           break;
 
+        case 'L':
+
+          hoverAreaColor = strtol (optarg, 0, 0);
+
+          break;
+
+        case 'M':
+
+          hoverParkColor = strtol (optarg, 0, 0);
+
+          break;
+
         case 's':
 
           imageWidth = imageHeight = strtol (optarg, 0, 0);
@@ -839,6 +888,12 @@ OsmRenderParseOptions (int argc, char **argv)
         case 'm':
 
           mapDataPath = [NSString stringWithUTF8String:optarg];
+
+          break;
+
+        case 'n':
+
+          mapFilePath = [NSString stringWithUTF8String:optarg];
 
           break;
 
@@ -1050,13 +1105,15 @@ OsmRenderFindMapFile (NSRect geoBounds)
 int
 main (int argc, char **argv)
 {
-  NSString *mapFilePath;
   NSAutoreleasePool *pool;
   MapData *mapData;
   SWCairo *mapSurface;
+  SWCairo *baseSurface;
   NSArray *ways = nil;
   NSRect geoBounds;
   NSUInteger i;
+
+  NSMutableArray *images;
 
   pool = [[NSAutoreleasePool alloc] init];
 
@@ -1071,7 +1128,11 @@ main (int argc, char **argv)
 
   geoBounds = NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin);
 
-  mapFilePath = OsmRenderFindMapFile (geoBounds);
+  if (!mapFilePath)
+    mapFilePath = OsmRenderFindMapFile (geoBounds);
+
+  if (verbose)
+    NSLog (@"Map file path: %@", mapFilePath);
 
   if (!(mapData = [[MapData alloc] initWithPath:mapFilePath]))
     errx (EXIT_FAILURE, "Failed to load map data");
@@ -1081,7 +1142,18 @@ main (int argc, char **argv)
   if (!mapSurface)
     {
       if (!dummyRun)
-        ways = [mapData waysInRect:geoBounds];
+        {
+          if (verbose)
+            NSLog (@"Looking for ways");
+
+          ways = [mapData waysInRect:geoBounds];
+
+          if (verbose)
+            NSLog (@"Got %lu ways", ways.count);
+
+          if (!ways.count)
+            errx (EXIT_FAILURE, "No ways found");
+        }
       else
         ways = [NSArray array];
 
@@ -1091,19 +1163,19 @@ main (int argc, char **argv)
       mapSurface = OsmRenderMapCached (ways);
     }
 
+  images = [[NSMutableArray alloc] init];
+
+  baseSurface = OsmRenderAreas (mapSurface, 0, OSM_RENDER_BASE);
+  [images addObject:baseSurface];
+  [images addObject:OsmRenderAreas (mapSurface, 0, OSM_RENDER_LABELS)];
+
   for (i = 0; i < [neighborhoods count]; ++i)
     {
-      NSString *pathHighlight;
-      NSString *pathHover;
-
-      pathHover = [NSString stringWithFormat:@"%@-%02lu-hover.png", prefix, (unsigned long) i];
-      pathHighlight = [NSString stringWithFormat:@"%@-%02lu.png", prefix, (unsigned long) i];
-
-      OsmRenderAreas (mapSurface, pathHover, i, YES);
-      OsmRenderAreas (mapSurface, pathHighlight, i, NO);
+      [images addObject:[OsmRenderAreas (mapSurface, i, OSM_RENDER_HOVER) surfaceWithDifferencesFromSurface:baseSurface]];
+      [images addObject:[OsmRenderAreas (mapSurface, i, OSM_RENDER_ACTIVE) surfaceWithDifferencesFromSurface:baseSurface]];
     }
 
-  OsmRenderAreas (mapSurface, [NSString stringWithFormat:@"%@.png", prefix], [neighborhoods count], NO);
+  [[SWCairo atlasFromSurfaces:images] writeToPNG:[NSString stringWithFormat:@"%@.png", prefix]];
 
   imageWidth = 290, imageHeight = 290;
   fontSize = 10;
@@ -1127,10 +1199,13 @@ main (int argc, char **argv)
   for (i = 0; i < [neighborhoods count]; ++i)
     {
       NSString *pathCallout;
+      SWCairo *areaSurface;
 
       pathCallout = [NSString stringWithFormat:@"%@-%02lu-callout.png", prefix, (unsigned long) i];
 
-      OsmRenderAreas (mapSurface, pathCallout, i, NO);
+      areaSurface = OsmRenderAreas (mapSurface, i, OSM_RENDER_CALLOUT);
+
+      [areaSurface writeToPNG:[NSString stringWithFormat:@"%@-%02lu-callout.png", prefix, (unsigned long) i]];
     }
 
   [pool release];
