@@ -524,8 +524,7 @@ enum OsmRenderMode
   OSM_RENDER_BASE,
   OSM_RENDER_HOVER,
   OSM_RENDER_ACTIVE,
-  OSM_RENDER_CALLOUT,
-  OSM_RENDER_LABELS
+  OSM_RENDER_CALLOUT
 };
 
 SWCairo *
@@ -557,11 +556,10 @@ OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMo
   scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
 
   cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
-                                 format:(renderMode == OSM_RENDER_LABELS) ? CAIRO_FORMAT_ARGB32 : CAIRO_FORMAT_RGB24];
+                                 format:CAIRO_FORMAT_RGB24];
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
 
-  if (renderMode != OSM_RENDER_LABELS)
     {
       SWCairo *mask, *source;
 
@@ -649,8 +647,6 @@ OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMo
       [mask release];
     }
 
-  if (renderMode == OSM_RENDER_LABELS
-      || renderMode == OSM_RENDER_CALLOUT)
     {
       i = 0;
 
@@ -1167,7 +1163,6 @@ main (int argc, char **argv)
 
   baseSurface = OsmRenderAreas (mapSurface, 0, OSM_RENDER_BASE);
   [images addObject:baseSurface];
-  [images addObject:OsmRenderAreas (mapSurface, 0, OSM_RENDER_LABELS)];
 
   for (i = 0; i < [neighborhoods count]; ++i)
     {
