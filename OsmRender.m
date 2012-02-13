@@ -47,6 +47,7 @@ static uint32_t landmarkBulletColor = 0xff7c126a;
 static int dummyRun = 0;
 static int verbose = 0;
 static int noCache = 0;
+static int waterInFront = 1;
 
 static SWCairo *treeIcon;
 
@@ -401,13 +402,9 @@ OsmRenderMap (NSArray *ways)
   coastPaths = [[NSMutableArray alloc] init];
 
   cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
-                                 format:CAIRO_FORMAT_RGB24];
+                                 format:CAIRO_FORMAT_ARGB32];
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
-
-  [cairo setColor:landColor];
-  [cairo addRectangle:bounds];
-  [cairo fill];
 
   /* Find coastline segments */
 
@@ -482,6 +479,7 @@ OsmRenderMapCached (NSArray *ways)
   SWSHA256 *hash;
   NSString *path;
   BOOL isDirectory;
+  unsigned char byte;
 
   hash = [SWSHA256 new];
 
@@ -494,6 +492,14 @@ OsmRenderMapCached (NSArray *ways)
   [hash addBytes:&waterColor length:sizeof (waterColor)];
   [hash addBytes:&landColor length:sizeof (landColor)];
   [hash addBytes:&parkColor length:sizeof (parkColor)];
+
+  if (waterInFront)
+    {
+      byte = 1;
+
+      [hash addBytes:&byte length:1];
+    }
+
   [hash finish];
 
   path = [@"/var/lib/osm/cached-images" stringByAppendingPathComponent:hash.stringForBase16Hash];
@@ -560,12 +566,19 @@ OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMo
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
 
-    {
-      SWCairo *mask, *source;
+  [cairo setColor:landColor];
+  [cairo addRectangle:bounds];
+  [cairo fill];
 
+  if (!waterInFront)
+    {
       [cairo setSurface:map
                      at:NSMakePoint (0, 0)];
       [cairo paint];
+    }
+
+    {
+      SWCairo *mask, *source;
 
       mask = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
                                     format:CAIRO_FORMAT_A8];
@@ -645,6 +658,13 @@ OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMo
 
       [source release];
       [mask release];
+    }
+
+  if (waterInFront)
+    {
+      [cairo setSurface:map
+                     at:NSMakePoint (0, 0)];
+      [cairo paint];
     }
 
     {
