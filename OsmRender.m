@@ -392,6 +392,7 @@ OsmRenderMap (NSArray *ways)
 {
   NSRect bounds;
   NSMutableArray *coastPaths;
+  NSMutableArray *bridgePaths;
   SWCairo *cairo;
   SWPath *path;
   MapWay *way;
@@ -399,14 +400,15 @@ OsmRenderMap (NSArray *ways)
 
   scale = NSMakePoint (imageWidth / (lonMax - lonMin), imageHeight / (latMin - latMax));
 
-  coastPaths = [[NSMutableArray alloc] init];
+  coastPaths = [NSMutableArray new];
+  bridgePaths = [NSMutableArray new];
 
   cairo = [[SWCairo alloc] initWithSize:NSMakeSize (imageWidth, imageHeight)
                                  format:CAIRO_FORMAT_ARGB32];
 
   bounds = NSMakeRect (0, 0, imageWidth, imageHeight);
 
-  /* Find coastline segments */
+  /* Find coastline and bridge segments */
 
   for (way in ways)
     {
@@ -414,20 +416,34 @@ OsmRenderMap (NSArray *ways)
       NSString *natural;
       NSArray *clippedPaths;
 
+      if ([way.tags objectForKey:@"bridge"])
+        {
+          scaledPath = [[SWPath alloc] initWithPath:way.path];
+          [scaledPath scale:scale];
+
+          [bridgePaths addObject:scaledPath];
+
+          [scaledPath release];
+
+          continue;
+        }
+
       natural = [way.tags objectForKey:@"natural"];
 
-      if (!natural || ![natural isEqualToString:@"coastline"])
-        continue;
+      if (natural && [natural isEqualToString:@"coastline"])
+        {
+          scaledPath = [[SWPath alloc] initWithPath:way.path];
+          [scaledPath scale:scale];
 
-      scaledPath = [[SWPath alloc] initWithPath:way.path];
-      [scaledPath scale:scale];
+          clippedPaths = [scaledPath clipToRect:bounds];
 
-      clippedPaths = [scaledPath clipToRect:bounds];
+          if (clippedPaths)
+            [coastPaths addObjectsFromArray:clippedPaths];
 
-      if (clippedPaths)
-        [coastPaths addObjectsFromArray:clippedPaths];
+          [scaledPath release];
 
-      [scaledPath release];
+          continue;
+        }
     }
 
   /* Merge coastlines into a single poly-polygon */
@@ -468,6 +484,23 @@ OsmRenderMap (NSArray *ways)
           [cairo fill];
         }
     }
+
+  /* Remove bridges */
+
+  cairo.color = 0xffffffff;
+  cairo.lineWidth = 2.0f;
+  cairo.operator = CAIRO_OPERATOR_DEST_OUT;
+
+  for (path in bridgePaths)
+    {
+      [cairo addPath:path];
+      [cairo stroke];
+    }
+
+  cairo.operator = CAIRO_OPERATOR_OVER;
+
+  [coastPaths release];
+  [bridgePaths release];
 
   return [cairo autorelease];
 }
