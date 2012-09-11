@@ -36,7 +36,7 @@ static uint32_t inactiveAreaColor = 0xffdee9f1;
 static uint32_t activeAreaColor = 0xfffec801;
 static uint32_t hoverAreaColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffdee9f1 >> 1) & 0x7f7f7f7f);
 static uint32_t hoverParkColor = ((0xffaec6e1 >> 1) & 0x7f7f7f7f) + ((0xffe2eed4 >> 1) & 0x7f7f7f7f);
-static uint32_t waterColor = 0xffaec6e1;
+static uint32_t waterColor = 0xffa1c5ed;
 static uint32_t inactiveAreaLabelColor = 0xff4c4c4c;
 static uint32_t activeAreaLabelColor = 0xffffffff;
 static uint32_t activeAreaLabelBackgroundColor = 0x7f000000;
@@ -386,6 +386,47 @@ OsmRenderTransformPoint (NSPoint *point)
   point->y = round ((point->y - latMax) * imageHeight / (latMin - latMax));
 }
 
+BOOL
+OsmIsWater (NSMutableDictionary *tags)
+{
+  NSString *tmp;
+
+  if (nil != (tmp = [tags objectForKey:@"natural"]))
+    {
+      if ([tmp isEqualToString:@"lake"]
+       || [tmp isEqualToString:@"pond"]
+       || [tmp isEqualToString:@"water"])
+        return YES;
+    }
+
+  if (nil != (tmp = [tags objectForKey:@"landuse"]))
+    {
+      if ([tmp isEqualToString:@"basin"]
+       || [tmp isEqualToString:@"lake"]
+       || [tmp isEqualToString:@"pond"]
+       || [tmp isEqualToString:@"reservoid"]
+       || [tmp isEqualToString:@"water"])
+        return YES;
+    }
+
+  if (nil != (tmp = [tags objectForKey:@"waterway"]))
+    {
+      if ([tmp isEqualToString:@"dock"]
+       || [tmp isEqualToString:@"riverbank"])
+        return YES;
+    }
+
+  return NO;
+}
+
+BOOL
+OsmFilterWay (NSMutableDictionary *tags)
+{
+  return [tags objectForKey:@"bridge"]
+         || [[tags objectForKey:@"natural"] isEqualToString:@"coastline"]
+         || OsmIsWater (tags);
+}
+
 SWCairo *
 OsmRenderMap (NSArray *ways)
 {
@@ -466,16 +507,7 @@ OsmRenderMap (NSArray *ways)
 
   for (way in ways)
     {
-      if (   [[way.tags objectForKey:@"waterway"] isEqualToString:@"riverbank"]
-          || [[way.tags objectForKey:@"waterway"] isEqualToString:@"dock"]
-          || [[way.tags objectForKey:@"natural"] isEqualToString:@"water"]
-          || [[way.tags objectForKey:@"natural"] isEqualToString:@"pond"]
-          || [[way.tags objectForKey:@"natural"] isEqualToString:@"lake"]
-          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"water"]
-          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"pond"]
-          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"lake"]
-          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"reservoid"]
-          || [[way.tags objectForKey:@"landuse"] isEqualToString:@"basin"])
+      if (OsmIsWater (way.tags))
         {
           [cairo addPath:way.path
                withScale:scale
@@ -522,8 +554,6 @@ OsmRenderMapCached (NSArray *ways)
   [hash addBytes:&imageWidth length:sizeof (imageWidth)];
   [hash addBytes:&imageHeight length:sizeof (imageHeight)];
   [hash addBytes:&waterColor length:sizeof (waterColor)];
-  [hash addBytes:&landColor length:sizeof (landColor)];
-  [hash addBytes:&parkColor length:sizeof (parkColor)];
 
   if (waterInFront)
     {
@@ -1190,7 +1220,8 @@ main (int argc, char **argv)
               if (verbose)
                 NSLog (@"Looking for ways");
 
-              ways = [mapData waysInRect:geoBounds];
+              ways = [mapData waysInRect:geoBounds
+                          matchingFilter:^BOOL (NSMutableDictionary *tags) { return OsmFilterWay (tags); }];
 
               if (verbose)
                 NSLog (@"Got %lu ways", ways.count);
@@ -1236,7 +1267,8 @@ main (int argc, char **argv)
   if (!mapSurface)
     {
       if (!dummyRun)
-        ways = [mapData waysInRect:geoBounds];
+        ways = [mapData waysInRect:geoBounds
+                    matchingFilter:^BOOL (NSMutableDictionary *tags) { return OsmFilterWay (tags); }];
       else
         ways = [NSArray array];
 

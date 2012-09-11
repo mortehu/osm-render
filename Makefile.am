@@ -1,7 +1,7 @@
 bin_PROGRAMS = OsmRender
 
 AM_CPPFLAGS = -I$(srcdir)/ProtocolBuffers
-AM_OBJCFLAGS = -Wall -g $(PACKAGES_CFLAGS) $(GNUSTEP_OBJCFLAGS)
+AM_OBJCFLAGS = -fblocks -Wall -g $(PACKAGES_CFLAGS) $(GNUSTEP_OBJCFLAGS)
 AM_CFLAGS = -Wall -g
 
 OsmRender_SOURCES = \

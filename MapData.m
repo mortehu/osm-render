@@ -140,6 +140,7 @@ struct MapDataWay
 }
 
 - (void)_collectNodesAndWays:(OSMPBF__PrimitiveBlock *)primitiveBlock
+              matchingFilter:(BOOL (^)(NSMutableDictionary *tags))filter
                matchingNodes:(SWIndexSet *)matchingNodes
                 matchingWays:(SWIndexSet *)matchingWays
                       result:(NSMutableDictionary *)result
@@ -196,6 +197,22 @@ struct MapDataWay
 
           tags = [NSMutableDictionary dictionaryWithCapacity:way->n_keys];
 
+          assert (way->n_keys == way->n_vals);
+
+          for (k = 0; k < way->n_keys; ++k)
+            {
+              ProtobufCBinaryData key, value;
+
+              key = primitiveBlock->stringtable->s[way->keys[k]];
+              value = primitiveBlock->stringtable->s[way->vals[k]];
+
+              [tags setObject:[[[NSString alloc] initWithBytes:value.data length:value.len encoding:NSUTF8StringEncoding] autorelease]
+                       forKey:[[[NSString alloc] initWithBytes:key.data length:key.len encoding:NSUTF8StringEncoding] autorelease]];
+            }
+
+          if (filter && !filter (tags))
+            continue;
+
           pathPoints = malloc (way->n_refs * sizeof (*pathPoints));
 
           for (k = 0; k < way->n_refs; ++k)
@@ -213,19 +230,6 @@ struct MapDataWay
               point = [value pointValue];
 
               pathPoints[k] = point;
-            }
-
-          assert (way->n_keys == way->n_vals);
-
-          for (k = 0; k < way->n_keys; ++k)
-            {
-              ProtobufCBinaryData key, value;
-
-              key = primitiveBlock->stringtable->s[way->keys[k]];
-              value = primitiveBlock->stringtable->s[way->vals[k]];
-
-              [tags setObject:[[[NSString alloc] initWithBytes:value.data length:value.len encoding:NSUTF8StringEncoding] autorelease]
-                       forKey:[[[NSString alloc] initWithBytes:key.data length:key.len encoding:NSUTF8StringEncoding] autorelease]];
             }
 
           assert ([tags count] == way->n_keys);
@@ -355,6 +359,7 @@ struct MapDataWay
 }
 
 - (NSArray *)waysInRect:(NSRect)realBounds
+         matchingFilter:(BOOL (^)(NSMutableDictionary *tags))filter
 {
   NSAutoreleasePool *pool;
 
@@ -445,6 +450,7 @@ struct MapDataWay
               else /* pass == 1 */
                 {
                   [self _collectNodesAndWays:primitiveBlock
+                              matchingFilter:filter
                                matchingNodes:matchingNodes
                                 matchingWays:matchingWays
                                       result:result];

@@ -28,5 +28,6 @@
 
 - (NSRect)bounds;
 
-- (NSArray *)waysInRect:(NSRect)rect;
+- (NSArray *)waysInRect:(NSRect)rect
+         matchingFilter:(BOOL (^)(NSMutableDictionary *tags))filter;
 @end
