@@ -24,7 +24,6 @@ static int print_version;
 static int print_help;
 
 static NSString *mapDataPath = @".";
-static NSString *mapFilePath = nil;
 static NSString *prefix = @"output";
 static unsigned int imageWidth = 396, imageHeight = 396;
 static NSString *inactiveAreaLabelFontName = @"Arial Bold 8";
@@ -820,6 +819,158 @@ OsmRenderAreas (SWCairo *map, NSUInteger activeArea, enum OsmRenderMode renderMo
 }
 
 static void
+OsmRenderLoadNeighborhoods (NSString *path)
+{
+  SWJSONStreamParser *parser;
+  SWJSONStream *stream;
+  NSDictionary *config;
+  NSArray *areaBox;
+
+  parser = [SWJSONStreamParser new];
+
+  stream = [SWJSONStream new];
+  stream.delegate = parser;
+
+  [stream consumeData:[NSData dataWithContentsOfFile:path]];
+  [stream consumeEnd];
+
+  if (!parser.result)
+    {
+      NSLog (@"Failed to parse %@", path);
+
+      exit (EXIT_FAILURE);
+    }
+
+  config = (NSDictionary *) parser.result;
+
+  if (!([config isKindOfClass:[NSDictionary class]]))
+    errx (EXIT_FAILURE, "%s does not contain an object at the root level",
+          [path UTF8String]);
+
+  if (!(areaBox = [config objectForKey:@"areaBox"]))
+    errx (EXIT_FAILURE, "%s is missing an areaBox",
+          [path UTF8String]);
+
+  if (areaBox.count != 4)
+    errx (EXIT_FAILURE, "%s: areaBox is not exactly 4 elements",
+          [path UTF8String]);
+
+  latMin = [[areaBox objectAtIndex:0] doubleValue];
+  lonMin = [[areaBox objectAtIndex:1] doubleValue];
+  latMax = [[areaBox objectAtIndex:2] doubleValue];
+  lonMax = [[areaBox objectAtIndex:3] doubleValue];
+
+  if (latMin > latMax)
+    {
+      double tmp;
+
+      tmp = latMin;
+      latMin = latMax;
+      latMax = tmp;
+    }
+
+  if (lonMin > lonMax)
+    {
+      double tmp;
+
+      tmp = lonMin;
+      lonMin = lonMax;
+      lonMax = tmp;
+    }
+
+  neighborhoods = [NSMutableArray new];
+
+  for (NSDictionary *area in [config objectForKey:@"areas"])
+    {
+      NSPoint point;
+      NSString *vertex;
+      OsmRenderNeighborhood *neighborhood;
+      NSArray *center;
+
+      neighborhood = [OsmRenderNeighborhood new];
+      neighborhood->path = [SWPath new];
+
+      for (vertex in [(NSString *)[area objectForKey:@"polygon"] componentsSeparatedByString:@","])
+        {
+          sscanf ([vertex UTF8String], "%lf %lf", &point.y, &point.x);
+
+          [neighborhood->path addPoint:point];
+        }
+
+      [neighborhood->path translate:NSMakePoint (-lonMin, -latMax)];
+
+      neighborhood->name = [[area objectForKey:@"label"] retain];
+
+      center = [area objectForKey:@"center"];
+
+      if (center.count != 2)
+        errx (EXIT_FAILURE, "%s: area \"%s\" center point is %ld elements instead of 2", [path UTF8String], [neighborhood->name UTF8String], center.count);
+
+      neighborhood->center.x = [[center objectAtIndex:1] doubleValue];
+      neighborhood->center.y = [[center objectAtIndex:0] doubleValue];
+
+      neighborhood->type = [[area objectForKey:@"type"] intValue];
+
+      [neighborhoods addObject:neighborhood];
+      [neighborhood release];
+    }
+
+  landmarks = [[config objectForKey:@"landmarks"] retain];
+}
+
+NSMutableArray *
+OsmRenderFindMapFiles (NSRect geoBounds)
+{
+  NSAutoreleasePool *pool;
+  NSMutableArray *result;
+  SWDirectoryEnumerator *direnum;
+  NSString *path;
+
+  result = [NSMutableArray array];
+
+  pool = [NSAutoreleasePool new];
+
+  direnum = [[NSFileManager defaultManager] nonRecursiveEnumeratorAtPath:mapDataPath];
+
+  while (0 != (path = [direnum nextObject]))
+    {
+      NSString *fullPath;
+      MapData *mapData;
+      NSRect mapBounds;
+      NSRange range;
+
+      if (path.length < 8)
+        continue;
+
+      range = [path rangeOfString:@".osm.pbf"
+                          options:NSLiteralSearch
+			    range:NSMakeRange (path.length - 8, 8)];
+
+      if (range.location == NSNotFound)
+        continue;
+
+      fullPath = [mapDataPath stringByAppendingPathComponent:path];
+
+      mapData = [[MapData alloc] initWithPath:fullPath];
+
+      mapBounds = mapData.bounds;
+
+      [mapData release];
+
+      if (NSContainsRect (mapBounds, geoBounds))
+        {
+          [result addObject:fullPath];
+        }
+    }
+
+  [pool release];
+
+  return result;
+}
+
+static NSMutableArray *mapFilePaths;
+
+static void
 OsmRenderParseOptions (int argc, char **argv)
 {
   int i;
@@ -942,7 +1093,7 @@ OsmRenderParseOptions (int argc, char **argv)
 
         case 'n':
 
-          mapFilePath = [NSString stringWithUTF8String:optarg];
+          mapFilePaths = [NSMutableArray arrayWithObject:[NSString stringWithUTF8String:optarg]];
 
           break;
 
@@ -993,164 +1144,6 @@ OsmRenderParseOptions (int argc, char **argv)
     }
 }
 
-static void
-OsmRenderLoadNeighborhoods (NSString *path)
-{
-  SWJSONStreamParser *parser;
-  SWJSONStream *stream;
-  NSDictionary *config;
-  NSArray *areaBox;
-
-  parser = [SWJSONStreamParser new];
-
-  stream = [SWJSONStream new];
-  stream.delegate = parser;
-
-  [stream consumeData:[NSData dataWithContentsOfFile:path]];
-  [stream consumeEnd];
-
-  if (!parser.result)
-    {
-      NSLog (@"Failed to parse %@", path);
-
-      exit (EXIT_FAILURE);
-    }
-
-  config = (NSDictionary *) parser.result;
-
-  if (!([config isKindOfClass:[NSDictionary class]]))
-    errx (EXIT_FAILURE, "%s does not contain an object at the root level",
-          [path UTF8String]);
-
-  if (!(areaBox = [config objectForKey:@"areaBox"]))
-    errx (EXIT_FAILURE, "%s is missing an areaBox",
-          [path UTF8String]);
-
-  if (areaBox.count != 4)
-    errx (EXIT_FAILURE, "%s: areaBox is not exactly 4 elements",
-          [path UTF8String]);
-
-  latMin = [[areaBox objectAtIndex:0] doubleValue];
-  lonMin = [[areaBox objectAtIndex:1] doubleValue];
-  latMax = [[areaBox objectAtIndex:2] doubleValue];
-  lonMax = [[areaBox objectAtIndex:3] doubleValue];
-
-  if (latMin > latMax)
-    {
-      double tmp;
-
-      tmp = latMin;
-      latMin = latMax;
-      latMax = tmp;
-    }
-
-  if (lonMin > lonMax)
-    {
-      double tmp;
-
-      tmp = lonMin;
-      lonMin = lonMax;
-      lonMax = tmp;
-    }
-
-  neighborhoods = [NSMutableArray new];
-
-  for (NSDictionary *area in [config objectForKey:@"areas"])
-    {
-      NSPoint point;
-      NSString *vertex;
-      OsmRenderNeighborhood *neighborhood;
-      NSArray *center;
-
-      neighborhood = [OsmRenderNeighborhood new];
-      neighborhood->path = [SWPath new];
-
-      for (vertex in [(NSString *)[area objectForKey:@"polygon"] componentsSeparatedByString:@","])
-        {
-          sscanf ([vertex UTF8String], "%lf %lf", &point.y, &point.x);
-
-          [neighborhood->path addPoint:point];
-        }
-
-      [neighborhood->path translate:NSMakePoint (-lonMin, -latMax)];
-
-      neighborhood->name = [[area objectForKey:@"label"] retain];
-
-      center = [area objectForKey:@"center"];
-
-      if (center.count != 2)
-        errx (EXIT_FAILURE, "%s: center point is not exactly 2 elements", [path UTF8String]);
-
-      neighborhood->center.x = [[center objectAtIndex:1] doubleValue];
-      neighborhood->center.y = [[center objectAtIndex:0] doubleValue];
-
-      neighborhood->type = [[area objectForKey:@"type"] intValue];
-
-      [neighborhoods addObject:neighborhood];
-      [neighborhood release];
-    }
-
-  landmarks = [[config objectForKey:@"landmarks"] retain];
-}
-
-NSString *
-OsmRenderFindMapFile (NSRect geoBounds)
-{
-  NSAutoreleasePool *pool;
-  SWDirectoryEnumerator *direnum;
-  NSString *path;
-  NSString *bestMatch = nil;
-  double bestArea;
-
-  pool = [NSAutoreleasePool new];
-
-  direnum = [[NSFileManager defaultManager] nonRecursiveEnumeratorAtPath:mapDataPath];
-
-  while (0 != (path = [direnum nextObject]))
-    {
-      NSString *fullPath;
-      MapData *mapData;
-      NSRect mapBounds;
-      NSRange range;
-
-      if (path.length < 8)
-        continue;
-
-      range = [path rangeOfString:@".osm.pbf"
-                          options:NSLiteralSearch
-			    range:NSMakeRange (path.length - 8, 8)];
-
-      if (range.location == NSNotFound)
-        continue;
-
-      fullPath = [mapDataPath stringByAppendingPathComponent:path];
-
-      mapData = [[MapData alloc] initWithPath:fullPath];
-
-      mapBounds = mapData.bounds;
-
-      [mapData release];
-
-      if (NSContainsRect (mapBounds, geoBounds))
-        {
-          double area;
-
-          area = mapBounds.size.width * mapBounds.size.height;
-
-          if (!bestMatch || area < bestArea)
-            {
-              bestMatch = fullPath;
-              bestArea = area;
-            }
-        }
-    }
-
-  [bestMatch retain];
-  [pool release];
-
-  return [bestMatch autorelease];
-}
-
 int
 main (int argc, char **argv)
 {
@@ -1177,39 +1170,48 @@ main (int argc, char **argv)
 
   geoBounds = NSMakeRect (lonMin, latMin, lonMax - lonMin, latMax - latMin);
 
-  if (!mapFilePath)
-    mapFilePath = OsmRenderFindMapFile (geoBounds);
-
-  if (verbose)
-    NSLog (@"Map file path: %@", mapFilePath);
-
-  if (!(mapData = [[MapData alloc] initWithPath:mapFilePath]))
-    errx (EXIT_FAILURE, "Failed to load map data");
-
   mapSurface = OsmRenderMapCached (nil);
 
   if (!mapSurface)
     {
-      if (!dummyRun)
+      if (!mapFilePaths)
+        mapFilePaths = OsmRenderFindMapFiles (geoBounds);
+
+      if (verbose)
+        NSLog (@"Map file paths: %@", mapFilePaths);
+
+      for (NSString *mapFilePath in mapFilePaths)
         {
-          if (verbose)
-            NSLog (@"Looking for ways");
+          if (!(mapData = [[MapData alloc] initWithPath:mapFilePath]))
+            errx (EXIT_FAILURE, "Failed to load map data");
 
-          ways = [mapData waysInRect:geoBounds];
+          if (!dummyRun)
+            {
+              if (verbose)
+                NSLog (@"Looking for ways");
 
-          if (verbose)
-            NSLog (@"Got %lu ways", ways.count);
+              ways = [mapData waysInRect:geoBounds];
 
-          if (!ways.count)
-            errx (EXIT_FAILURE, "No ways found");
+              if (verbose)
+                NSLog (@"Got %lu ways", ways.count);
+
+              if (!ways.count)
+                {
+                  [mapData release];
+
+                  continue;
+                }
+            }
+          else
+            ways = [NSArray array];
+
+          for (MapWay *way in ways)
+            [way.path translate:NSMakePoint (-lonMin, -latMax)];
+
+          mapSurface = OsmRenderMapCached (ways);
+
+          break;
         }
-      else
-        ways = [NSArray array];
-
-      for (MapWay *way in ways)
-        [way.path translate:NSMakePoint (-lonMin, -latMax)];
-
-      mapSurface = OsmRenderMapCached (ways);
     }
 
   images = [[NSMutableArray alloc] init];
